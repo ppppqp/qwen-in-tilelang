@@ -2,23 +2,77 @@ import torch
 
 from .basics import linear
 
+import tilelang
+import tilelang.language as T
 
-def scaled_dot_product_attention_simple(
-    query: torch.Tensor,
-    key: torch.Tensor,
-    value: torch.Tensor,
-    scale: float | None = None,
-    mask: torch.Tensor | None = None,
-) -> torch.Tensor:
-    """
-    A simple implementation of scaled dot product attention. Assuming Q, K, V are of the same shape.
-    Assuming mask is always a float array that you can add to the scores.
-    """
-    factor = query.shape[-1] ** -0.5 if scale is None else scale
-    scores = torch.matmul(query, key.swapaxes(-2, -1)) * factor
-    if mask is not None:
-        scores = scores + mask
-    return torch.matmul(torch.softmax(scores, dim=-1), value)
+
+# TODO: mask
+# TODO: multihead
+# TODO: group QA
+@tilelang.jit
+def attention(Q, K, V, BLOCK_B: int, BLOCK_S: int):
+    log2_e = 1.44269504
+    B, S = T.const("B, S")
+    dtype = T.float32
+    Q: T.Tensor((B, S), dtype)
+    K: T.Tensor((B, S), dtype)
+    V: T.Tensor((B, S), dtype)
+    O = T.empty((B, S), dtype)
+
+    # TODO: Implement this function
+    with T.Kernel(B // BLOCK_B, threads=256) as pid_b:
+        Q_local = T.alloc_fragment((BLOCK_B, BLOCK_S), dtype)
+        K_local = T.alloc_fragment((BLOCK_B, BLOCK_S), dtype)
+        V_local = T.alloc_fragment((BLOCK_B, BLOCK_S), dtype)
+        O_local = T.alloc_fragment((BLOCK_B, BLOCK_S), dtype)
+
+        cur_QK = T.alloc_fragment([BLOCK_B, BLOCK_S], dtype)
+        cur_exp_QK = T.alloc_fragment([BLOCK_B, BLOCK_S], dtype)
+        cur_max_QK = T.alloc_fragment([BLOCK_B], dtype)
+        cur_sum_exp_QK = T.alloc_fragment([BLOCK_B], dtype)
+
+        lse = T.alloc_fragment([BLOCK_B], dtype)
+
+        T.fill(lse, -T.infinity(dtype))
+
+        # The first loop use an online algorithm to compute LSE.
+        for s_blk_id in T.Serial(S // BLOCK_S):
+            T.copy(Q[pid_b * BLOCK_B, s_blk_id * BLOCK_S], Q_local)
+            T.copy(K[pid_b * BLOCK_B, s_blk_id * BLOCK_S], K_local)
+
+            for i, j in T.Parallel(BLOCK_B, BLOCK_S):
+                cur_QK[i, j] = Q_local[i, j] * K_local[i, j]
+
+            T.reduce_max(cur_QK, cur_max_QK, dim=1, clear=True)
+
+            for i, j in T.Parallel(BLOCK_B, BLOCK_S):
+                cur_exp_QK[i, j] = T.exp2(
+                    cur_QK[i, j] * log2_e - cur_max_QK[i] * log2_e
+                )
+
+            T.reduce_sum(cur_exp_QK, cur_sum_exp_QK, dim=1, clear=True)
+
+            for i in T.Parallel(BLOCK_B):
+                lse[i] = cur_max_QK[i] * log2_e + T.log2(
+                    T.exp2(lse[i] - cur_max_QK[i] * log2_e) + cur_sum_exp_QK[i]
+                )
+
+        # The second loop use LSE to get the final output.
+        # TODO: improve the efficiency here. Maybe pipeline it?
+        for s_blk_id in T.Serial(S // BLOCK_S):
+            T.copy(Q[pid_b * BLOCK_B, s_blk_id * BLOCK_S], Q_local)
+            T.copy(K[pid_b * BLOCK_B, s_blk_id * BLOCK_S], K_local)
+            T.copy(V[pid_b * BLOCK_B, s_blk_id * BLOCK_S], V_local)
+
+            for i, j in T.Parallel(BLOCK_B, BLOCK_S):
+                O_local[i, j] = (
+                    T.exp2(Q_local[i, j] * K_local[i, j] * log2_e - lse[i])
+                    * V_local[i, j]
+                )
+
+            T.copy(O_local, O[pid_b * BLOCK_B, s_blk_id * BLOCK_S])
+
+    return O
 
 
 def causal_mask(

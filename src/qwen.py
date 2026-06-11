@@ -2,13 +2,14 @@ from dataclasses import dataclass
 import tilelang.language as T
 import torch
 
-from .basics import linear, silu
+from .basics import linear, silu, rms_norm
 from .attention import scaled_dot_product_attention_grouped
-from .layer_norm import RMSNorm
-from .positional_encoding import RoPE
+from .basics import RMSNorm
+from .rope import RoPE
 from typing import Any
 from .embedding import Embedding
 from .quantize import dequantize_linear
+from utils import run_kernel
 
 
 class Qwen3MultiHeadAttention:
@@ -45,21 +46,31 @@ class Qwen3MultiHeadAttention:
         self.k_norm = k_norm
         self.rms_norm_eps = rms_norm_eps
 
+        # empty bias for reusing
+        self.empty_bias = torch.zeros(self.hidden_size, dtype=torch.float16)
+
+        # TODO: precompile all kernels
+        # TODO: BLOCK hyper parameter and autotuning
+
     def __call__(
         self,
         x: torch.tensor,
         mask: torch.tensor | str | None = None,
     ) -> torch.tensor:
         B, L, _ = x.shape
-        projection_q = linear(x, self.wq).reshape(B, L, self.num_heads, self.head_dim)
-        projection_k = linear(x, self.wk).reshape(
-            B, L, self.num_kv_heads, self.head_dim
+        projection_q = run_kernel(
+            kernel=linear, inputs=[x, self.wq, self.empty_bias]
+        ).reshape(B, L, self.num_heads, self.head_dim)
+        projection_k = run_kernel(
+            kernel=linear, inputs=[x, self.wk, self.empty_bias]
+        ).reshape(B, L, self.num_heads, self.head_dim)
+        projection_q = run_kernel(
+            kernel=rms_norm,
+            inputs=[projection_q, self.q_norm, self.rms_norm_eps],
         )
-        projection_q = mx.fast.rms_norm(
-            projection_q, self.q_norm, eps=self.rms_norm_eps
-        )
-        projection_k = mx.fast.rms_norm(
-            projection_k, self.k_norm, eps=self.rms_norm_eps
+        projection_k = run_kernel(
+            kernel=rms_norm,
+            inputs=[projection_k, self.k_norm, self.rms_norm_eps],
         )
         projection_v = linear(x, self.wv).reshape(
             B, L, self.num_kv_heads, self.head_dim

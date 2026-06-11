@@ -3,6 +3,7 @@ import tilelang.language as T
 from tilelang.jit import JITKernel, JITImpl
 from tilelang.engine.param import KernelParam
 
+# TODO: handle more than 2D tensors
 
 
 @tilelang.jit
@@ -33,19 +34,23 @@ def softmax(A, BLOCK_N: int, BLOCK_M: int):
 
             T.reduce_sum(cur_exp, cur_sum, dim=1, clear=True)
             for nn in T.Parallel(BLOCK_N):
-                lse[nn] = T.log2(T.exp2(lse[nn] - cur_max[nn] * log2_e) + cur_sum[nn]) + cur_max[nn] * log2_e
-        
+                lse[nn] = (
+                    T.log2(T.exp2(lse[nn] - cur_max[nn] * log2_e) + cur_sum[nn])
+                    + cur_max[nn] * log2_e
+                )
+
         for m_idx in T.Serial(T.ceildiv(M, BLOCK_M)):
             T.copy(A[bx * BLOCK_N, m_idx * BLOCK_M], A_local)
             for i, j in T.Parallel(BLOCK_N, BLOCK_M):
                 B_local[i, j] = T.exp2(A_local[i, j] * log2_e - lse[i])
-        
+
             T.copy(B_local, B[bx * BLOCK_N, m_idx * BLOCK_M])
 
     return B
 
+
 @tilelang.jit
-def linear(X, W, b):
+def linear(X, W, b, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int):
     N, M = T.const("M, N, K")
     dtype = T.float16
     accum_dtype = T.float16
@@ -60,7 +65,7 @@ def linear(X, W, b):
         acc = T.alloc_fragment((BLOCK_M, BLOCK_N), accum_dtype)
         X_local = T.alloc_shared((BLOCK_M, BLOCK_K), dtype)
         W_local = T.alloc_shared((BLOCK_K, BLOCK_N), dtype)
-        
+
         T.copy(b, acc)
 
         for k in T.Pipelined(T.ceildiv(K, BLOCK_K), num_stages=3):
@@ -68,9 +73,8 @@ def linear(X, W, b):
             T.copy(W[k * BLOCK_K, pid_n * BLOCK_N], W_local)
 
             T.gemm(X_local, W_local, acc, clear_accum=False)
-            
-        
-        T.copy(acc, O[pid_m * BLOCK_M, pid_n * BLOCK_N]) 
+
+        T.copy(acc, O[pid_m * BLOCK_M, pid_n * BLOCK_N])
     return O
 
 
@@ -79,5 +83,31 @@ def silu(X):
     pass
 
 
-def rms_norm(X):
-    pass
+@tilelang.jit
+def rms_norm(X, weight, eps: float, BLOCK_M: int, BLOCK_N: int):
+    N, M = T.const("M, N")
+    dtype = T.float16
+    accum_dtype = T.float32
+    X: T.Tensor((M, N), dtype)
+    weight: T.Tensor((N,), dtype)
+    O = T.empty((M, N), dtype)
+    with T.Kernel(T.ceildiv(M, BLOCK_M), T.ceildiv(N, BLOCK_N), threads=128) as (
+        pid_m,
+        pid_n,
+    ):
+        X_local = T.alloc_fragment((BLOCK_M, BLOCK_N), dtype)
+        weight_local = T.alloc_fragment((BLOCK_N,), dtype)
+        mean = T.alloc_fragment((BLOCK_M,), accum_dtype)
+        var = T.alloc_fragment((BLOCK_M,), accum_dtype)
+        O_local = T.alloc_fragment((BLOCK_M, BLOCK_N), dtype)
+        T.copy(X[pid_m * BLOCK_M, pid_n * BLOCK_N], X_local)
+        T.copy(weight[pid_n * BLOCK_N], weight_local)
+        for i in T.Parallel(BLOCK_M):
+            mean[i] = T.mean(X_local[i, :])
+            var[i] = T.mean((X_local[i, :] - mean[i]) ** 2)
+        for i, j in T.Parallel(BLOCK_M, BLOCK_N):
+            O_local[i, j] = (
+                (X_local[i, j] - mean[i]) / T.sqrt(var[i] + eps) * weight_local[j]
+            )
+        T.copy(O_local, O[pid_m * BLOCK_M, pid_n * BLOCK_N])
+    return O
