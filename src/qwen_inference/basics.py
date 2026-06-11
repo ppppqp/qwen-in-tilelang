@@ -51,9 +51,9 @@ def softmax(A, BLOCK_N: int, BLOCK_M: int):
 
 @tilelang.jit
 def linear(X, W, b, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int):
-    N, M = T.const("M, N, K")
+    M, N, K = T.const("M, N, K")
     dtype = T.float16
-    accum_dtype = T.float16
+    accum_dtype = T.float32
     X: T.Tensor((M, K), dtype)
     W: T.Tensor((K, N), dtype)
     b: T.Tensor((M, N), dtype)
@@ -66,7 +66,7 @@ def linear(X, W, b, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int):
         X_local = T.alloc_shared((BLOCK_M, BLOCK_K), dtype)
         W_local = T.alloc_shared((BLOCK_K, BLOCK_N), dtype)
 
-        T.copy(b, acc)
+        T.copy(b[pid_m * BLOCK_M, pid_n * BLOCK_N], acc)
 
         for k in T.Pipelined(T.ceildiv(K, BLOCK_K), num_stages=3):
             T.copy(X[pid_m * BLOCK_M, k * BLOCK_K], X_local)
@@ -85,29 +85,42 @@ def silu(X):
 
 @tilelang.jit
 def rms_norm(X, weight, eps: float, BLOCK_M: int, BLOCK_N: int):
-    N, M = T.const("M, N")
+    M, N = T.const("M, N")
+
     dtype = T.float16
     accum_dtype = T.float32
+
     X: T.Tensor((M, N), dtype)
     weight: T.Tensor((N,), dtype)
     O = T.empty((M, N), dtype)
-    with T.Kernel(T.ceildiv(M, BLOCK_M), T.ceildiv(N, BLOCK_N), threads=128) as (
-        pid_m,
-        pid_n,
-    ):
+
+    with T.Kernel(T.ceildiv(M, BLOCK_M), threads=128) as pid_m:
         X_local = T.alloc_fragment((BLOCK_M, BLOCK_N), dtype)
-        weight_local = T.alloc_fragment((BLOCK_N,), dtype)
-        mean = T.alloc_fragment((BLOCK_M,), accum_dtype)
-        var = T.alloc_fragment((BLOCK_M,), accum_dtype)
+        W_local = T.alloc_fragment((BLOCK_N,), dtype)
+        X_square = T.alloc_fragment((BLOCK_M, BLOCK_N), accum_dtype)
+        sum_square = T.alloc_fragment((BLOCK_M,), accum_dtype)
+        inv_rms = T.alloc_fragment((BLOCK_M,), accum_dtype)
         O_local = T.alloc_fragment((BLOCK_M, BLOCK_N), dtype)
-        T.copy(X[pid_m * BLOCK_M, pid_n * BLOCK_N], X_local)
-        T.copy(weight[pid_n * BLOCK_N], weight_local)
+
+        T.copy(X[pid_m * BLOCK_M, 0], X_local)
+        T.copy(weight[0], W_local)
+
+        for i, j in T.Parallel(BLOCK_M, BLOCK_N):
+            x = X_local[i, j].astype(accum_dtype)
+            X_square[i, j] = x * x
+
+        T.reduce_sum(X_square, sum_square, dim=1, clear=True)
+
         for i in T.Parallel(BLOCK_M):
-            mean[i] = T.mean(X_local[i, :])
-            var[i] = T.mean((X_local[i, :] - mean[i]) ** 2)
+            inv_rms[i] = T.rsqrt(sum_square[i] / N + eps)
+
         for i, j in T.Parallel(BLOCK_M, BLOCK_N):
             O_local[i, j] = (
-                (X_local[i, j] - mean[i]) / T.sqrt(var[i] + eps) * weight_local[j]
-            )
-        T.copy(O_local, O[pid_m * BLOCK_M, pid_n * BLOCK_N])
+                X_local[i, j].astype(accum_dtype)
+                * inv_rms[i]
+                * W_local[j].astype(accum_dtype)
+            ).astype(dtype)
+
+        T.copy(O_local, O[pid_m * BLOCK_M, 0])
+
     return O
