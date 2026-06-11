@@ -1,6 +1,6 @@
 import torch
 
-from .basics import linear
+from qwen_inference.basics import linear
 
 import tilelang
 import tilelang.language as T

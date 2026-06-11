@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import pytest
-from common_test_utils import (
-    test_kernel,
+from tests.common_test_utils import (
+    kernel_tester,
 )
-from ..attention import attention
+from qwen_inference.attention import attention
 import torch
-
-pytest.importorskip("tilelang")
 
 
 def test_attention():
@@ -24,8 +21,10 @@ def test_attention():
     S = 16384
     BLOCK_B = 16
     BLOCK_S = 128
-    test_kernel(
+    match = kernel_tester(
         attention,
         ref_attention,
         {"B": B, "S": S, "BLOCK_B": BLOCK_B, "BLOCK_S": BLOCK_S},
     )
+    assert match, "Attention test failed!"
+    print("Attention test passed!")

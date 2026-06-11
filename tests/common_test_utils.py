@@ -56,16 +56,15 @@ def _torch_tensor_materialize(params: list[KernelParam]):
     return inputs_in_torch_tensors
 
 
-def test_kernel(
+def kernel_tester(
     kernel_tl: JITImpl,
     kernel_torch: Callable,
     tl_hyper_params: dict = {},
     print_log: bool = False,
     atol: float = 1e-2,
     rtol: float = 1e-2,
-):
+) -> bool:
     """Test a puzzle solution with given hyper parameters."""
-
     tl_kernel: JITKernel = kernel_tl.compile(**tl_hyper_params)
     # print(tl_kernel.get_kernel_source())
     # exit()
@@ -97,3 +96,5 @@ def test_kernel(
         # print(idx)
         print("Max diff:", torch.max(torch.abs(output_torch - output_tl)))
         print("Mean diff:", torch.mean(torch.abs(output_torch - output_tl)))
+
+    return match
