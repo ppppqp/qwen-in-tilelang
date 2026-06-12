@@ -72,9 +72,10 @@ class Qwen3MultiHeadAttention:
             kernel=rms_norm,
             inputs=[projection_k, self.k_norm, self.rms_norm_eps],
         )
-        projection_v = linear(x, self.wv).reshape(
-            B, L, self.num_kv_heads, self.head_dim
-        )
+        projection_v = run_kernel(
+            kernel=linear, inputs=[x, self.wv, self.empty_bias]
+        ).reshape(B, L, self.num_kv_heads, self.head_dim)
+
         projection_q = self.rope(projection_q, offset=slice(0, L))
         projection_k = self.rope(projection_k, offset=slice(0, L))
         projection_q = projection_q.transpose(0, 2, 1, 3)
