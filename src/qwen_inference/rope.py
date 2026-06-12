@@ -31,18 +31,14 @@ def rope(X, offset, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
         X_local_imag = T.alloc_fragment((BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D), dtype)
         O_local_real = T.alloc_fragment((BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D), dtype)
         O_local_imag = T.alloc_fragment((BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D), dtype)
-        cos_basis = T.alloc_fragment((BLOCK_S), dtype)
-        sin_basis = T.alloc_fragment((BLOCK_S), dtype)
+        cos_basis = T.alloc_fragment((BLOCK_S, BLOCK_D), dtype)
+        sin_basis = T.alloc_fragment((BLOCK_S, BLOCK_D), dtype)
         for s, d in T.Parallel(BLOCK_S, BLOCK_D):
             seq_idx = offset + pid_s * BLOCK_S + s
             dim_idx = pid_d * BLOCK_D + d
-            freq = T.pow(10000.0, -dim_idx / half_D)
-            cos_basis[s] = T.cos(seq_idx * freq)
-            sin_basis[s] = T.sin(seq_idx * freq)
-
-        cos_basis = cos_basis.reshape(1, S, 1, BLOCK_D)
-        sin_basis = sin_basis.reshape(1, S, 1, BLOCK_D)
-
+            freq = T.pow(10000.0, -dim_idx.astype("float32") / half_D)
+            cos_basis[s, d] = T.cos(seq_idx * freq)
+            sin_basis[s, d] = T.sin(seq_idx * freq)
         # for each block, we process
         # x[..., BLOCK_D * pid_d : BLOCK_D * (pid_d + 1)]
         # and x[..., BLOCK_D * pid_d + half_D : BLOCK_D * (pid_d + 1) + half_D]
@@ -67,17 +63,17 @@ def rope(X, offset, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
             X_local_imag,
         )
 
-        for i, j in T.Parallel(BLOCK_H, BLOCK_D):
+        for n, s, h, d in T.Parallel(BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
             real = (
-                X_local_real[n_blk_id, s_blk_id, i, j] * cos_basis[i, j]
-                - X_local_imag[n_blk_id, s_blk_id, i, j] * sin_basis[i, j]
+                X_local_real[n, s, h, d] * cos_basis[s, d]
+                - X_local_imag[n, s, h, d] * sin_basis[s, d]
             )
             imag = (
-                X_local_imag[n_blk_id, s_blk_id, i, j] * cos_basis[i, j]
-                + X_local_real[n_blk_id, s_blk_id, i, j] * sin_basis[i, j]
+                X_local_imag[n, s, h, d] * cos_basis[s, d]
+                + X_local_real[n, s, h, d] * sin_basis[s, d]
             )
-            O_local_real[i, j] = real
-            O_local_imag[i, j] = imag
+            O_local_real[n, s, h, d] = real
+            O_local_imag[n, s, h, d] = imag
 
         T.copy(
             O_local_real,
