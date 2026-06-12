@@ -11,27 +11,32 @@ def rope(X, offset, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
     O = T.empty((N, S, H, D), dtype)
     # can I compute constants here?
     half_D = D // 2
+
+    num_h_blocks = T.ceildiv(H, BLOCK_H)
+    num_d_blocks = T.ceildiv(half_D, BLOCK_D)
     with T.Kernel(
         T.ceildiv(N, BLOCK_N),
         T.ceildiv(S, BLOCK_S),
-        T.ceildiv(H, BLOCK_H),
-        T.ceildiv(half_D, BLOCK_D),
+        num_h_blocks * num_d_blocks,
+        # tilelang support 3 dimension at most, since hardware usually have at most 3 level of parallelism. So we need to combine H and D dimensions together.
         threads=256,
     ) as (
         pid_n,
         pid_s,
-        pid_h,
-        pid_d,
+        pid_hd,
     ):
+        pid_h = pid_hd // num_d_blocks
+        pid_d = pid_hd % num_d_blocks
         X_local_real = T.alloc_fragment((BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D), dtype)
         X_local_imag = T.alloc_fragment((BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D), dtype)
         O_local_real = T.alloc_fragment((BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D), dtype)
         O_local_imag = T.alloc_fragment((BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D), dtype)
         cos_basis = T.alloc_fragment((BLOCK_S), dtype)
         sin_basis = T.alloc_fragment((BLOCK_S), dtype)
-        for s in T.Parallel(BLOCK_S):
+        for s, d in T.Parallel(BLOCK_S, BLOCK_D):
             seq_idx = offset + pid_s * BLOCK_S + s
-            freq = T.pow(10000.0, -seq_idx / half_D)
+            dim_idx = pid_d * BLOCK_D + d
+            freq = T.pow(10000.0, -dim_idx / half_D)
             cos_basis[s] = T.cos(seq_idx * freq)
             sin_basis[s] = T.sin(seq_idx * freq)
 
