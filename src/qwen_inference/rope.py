@@ -4,7 +4,7 @@ from tilelang.jit import JITKernel, JITImpl
 
 
 @tilelang.jit
-def rope(X, offset, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
+def rope(X, offset, base, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
     N, S, H, D = T.const("N, S, H, D")
     dtype = T.float32
     X: T.Tensor((N, S, H, D), dtype)
@@ -36,7 +36,7 @@ def rope(X, offset, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
         for s, d in T.Parallel(BLOCK_S, BLOCK_D):
             seq_idx = offset + pid_s * BLOCK_S + s
             dim_idx = pid_d * BLOCK_D + d
-            freq = T.pow(10000.0, -dim_idx.astype("float32") / half_D)
+            freq = T.pow(base, -dim_idx.astype("float32") / half_D)
             cos_basis[s, d] = T.cos(seq_idx * freq)
             sin_basis[s, d] = T.sin(seq_idx * freq)
         # for each block, we process

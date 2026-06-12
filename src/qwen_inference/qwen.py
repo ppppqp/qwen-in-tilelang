@@ -45,7 +45,7 @@ class Qwen3MultiHeadAttention:
         self.q_norm = q_norm
         self.k_norm = k_norm
         self.rms_norm_eps = rms_norm_eps
-
+        self.rope_base = float(theta)
         # empty bias for reusing
         self.empty_bias = torch.zeros(self.hidden_size, dtype=torch.float16)
 
@@ -76,11 +76,29 @@ class Qwen3MultiHeadAttention:
             kernel=linear, inputs=[x, self.wv, self.empty_bias]
         ).reshape(B, L, self.num_kv_heads, self.head_dim)
 
-        projection_q = self.rope(projection_q, offset=slice(0, L))
-        projection_k = self.rope(projection_k, offset=slice(0, L))
+        projection_q = run_kernel(
+            kernel=self.rope,
+            inputs=[
+                projection_q,
+                self.rope_base,
+                0,  # offset
+            ],
+            tl_hyper_params={"offset": slice(0, L)},
+        )
+        projection_k = run_kernel(
+            kernel=self.rope,
+            inputs=[
+                projection_k,
+                self.rope_base,
+                0,  # offset
+            ],
+            tl_hyper_params={"offset": slice(0, L)},
+        )
         projection_q = projection_q.transpose(0, 2, 1, 3)
         projection_k = projection_k.transpose(0, 2, 1, 3)
         projection_v = projection_v.transpose(0, 2, 1, 3)
+        # x = run_kernel()
+
         x = scaled_dot_product_attention_grouped(
             projection_q.astype(mx.float32),
             projection_k.astype(mx.float32),
