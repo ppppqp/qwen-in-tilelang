@@ -1,3 +1,4 @@
+from qwen_inference.utils import run_kernel
 import tilelang
 import tilelang.language as T
 from tilelang.jit import JITKernel, JITImpl
@@ -124,3 +125,21 @@ def rms_norm(X, weight, eps: float, BLOCK_M: int, BLOCK_N: int):
         T.copy(O_local, O[pid_m * BLOCK_M, 0])
 
     return O
+
+
+class RMSNorm:
+    def __init__(self, dim: int, weight: torch.Tensor, eps: float = 1e-5):
+        self.dim = dim
+        self.eps = eps
+        self.weight = weight
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        orig_dtype = x.dtype
+        x = x.to(torch.float32)
+        run_kernel(
+            kernel=rms_norm,
+            inputs=[x, self.weight, self.eps],
+            tl_hyper_params={"BLOCK_M": 64, "BLOCK_N": 128},
+        )
+        x = x.to(orig_dtype)
+        return x

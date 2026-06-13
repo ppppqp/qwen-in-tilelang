@@ -76,24 +76,9 @@ class Qwen3MultiHeadAttention:
             kernel=linear, inputs=[x, self.wv, self.empty_bias]
         ).reshape(B, L, self.num_kv_heads, self.head_dim)
 
-        projection_q = run_kernel(
-            kernel=self.rope,
-            inputs=[
-                projection_q,
-                self.rope_base,
-                0,  # offset
-            ],
-            tl_hyper_params={"offset": slice(0, L)},
-        )
-        projection_k = run_kernel(
-            kernel=self.rope,
-            inputs=[
-                projection_k,
-                self.rope_base,
-                0,  # offset
-            ],
-            tl_hyper_params={"offset": slice(0, L)},
-        )
+        projection_q = self.rope(projection_q)
+        projection_k = self.rope(projection_k)
+
         projection_q = projection_q.transpose(0, 2, 1, 3)
         projection_k = projection_k.transpose(0, 2, 1, 3)
         projection_v = projection_v.transpose(0, 2, 1, 3)
