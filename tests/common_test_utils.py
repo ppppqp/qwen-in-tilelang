@@ -60,6 +60,7 @@ def kernel_tester(
     kernel_tl: JITImpl,
     kernel_torch: Callable,
     tl_hyper_params: dict = {},
+    inputs_in_torch_tensors: list[torch.Tensor] | None = None,
     print_log: bool = False,
     atol: float = 1e-2,
     rtol: float = 1e-2,
@@ -68,7 +69,8 @@ def kernel_tester(
     tl_kernel: JITKernel = kernel_tl.compile(**tl_hyper_params)
     # print(tl_kernel.get_kernel_source())
     # exit()
-    inputs_in_torch_tensors = _torch_tensor_materialize(tl_kernel.params)
+    if inputs_in_torch_tensors is None:
+        inputs_in_torch_tensors = _torch_tensor_materialize(tl_kernel.params)
 
     # As the kernel may modify the input tensors, we make a copy of them.
     inputs_copy = [i.clone() for i in inputs_in_torch_tensors]

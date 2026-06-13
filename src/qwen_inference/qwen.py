@@ -98,24 +98,21 @@ class Qwen3MultiHeadAttention:
         projection_k = projection_k.transpose(0, 2, 1, 3)
         projection_v = projection_v.transpose(0, 2, 1, 3)
 
+        # TODO: potentially fix precision here
+        # TODO: custom scale
         x = (
             run_kernel(
                 grouped_attention,
-                inputs=[projection_q, projection_k, projection_v, self.scale, mask],
+                inputs=[projection_q, projection_k, projection_v, mask],
             )
             .transpose(0, 2, 1, 3)
             .reshape(B, L, self.num_heads * self.head_dim)
         )
 
-        x = scaled_dot_product_attention_grouped(
-            projection_q.astype(mx.float32),
-            projection_k.astype(mx.float32),
-            projection_v.astype(mx.float32),
-            scale=self.scale,
-            mask=mask,
-        ).astype(x.dtype)
         x = x.transpose(0, 2, 1, 3).reshape(B, L, self.num_heads * self.head_dim)
-        return linear(x, self.wo)
+
+        output = run_kernel(kernel=linear, inputs=[x, self.wo, self.empty_bias])
+        return output
 
 
 class Qwen3MLP:

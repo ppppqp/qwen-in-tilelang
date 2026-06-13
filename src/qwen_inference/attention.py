@@ -75,8 +75,11 @@ def attention(Q, K, V, BLOCK_B: int, BLOCK_S: int):
 
 
 # Grouped QA, similar to multi-head attention but with shared Q and separate K, V.
+# TODO: implement custom scale and mask
+# TODO: case where query seq length != key/value seq length
+# TODO: optimize for sparse case?
 @tilelang.jit
-def grouped_attention(Q, K, V, BLOCK_B: int, BLOCK_S: int):
+def grouped_attention(Q, K, V, mask, BLOCK_B: int, BLOCK_S: int):
     log2_e = 1.44269504
     QB, B, S = T.const("QB, B, S")
     dtype = T.float32
@@ -84,6 +87,7 @@ def grouped_attention(Q, K, V, BLOCK_B: int, BLOCK_S: int):
     Q: T.Tensor((QB, S), dtype)
     K: T.Tensor((B, S), dtype)
     V: T.Tensor((B, S), dtype)
+    mask: T.Tensor((B, S), dtype)
     O = T.empty((QB, S), dtype)
 
     head_num = QB // B
@@ -111,20 +115,35 @@ def grouped_attention(Q, K, V, BLOCK_B: int, BLOCK_S: int):
             T.copy(K[pid_b * BLOCK_B, s_blk_id * BLOCK_S], K_local)
 
             for h, i, j in T.Parallel(head_num, BLOCK_B, BLOCK_S):
-                cur_QK[h, i, j] = Q_local[h, i, j] * K_local[i, j]
+                # mask out the scores here
+                # mask value is expected to be 0 for valid positions and -inf for masked positions, so we can directly add it to the score.
+                cur_QK[h, i, j] = (
+                    Q_local[h, i, j] * K_local[i, j]
+                    + mask[pid_b * BLOCK_B + i, s_blk_id * BLOCK_S + j]
+                )
 
             T.reduce_max(cur_QK, cur_max_QK, dim=2, clear=True)
 
             for h, i, j in T.Parallel(head_num, BLOCK_B, BLOCK_S):
-                cur_exp_QK[h, i, j] = T.exp2(
-                    cur_QK[h, i, j] * log2_e - cur_max_QK[h, i] * log2_e
+                cur_exp_QK[h, i, j] = T.if_then_else(
+                    cur_max_QK[h, i]
+                    == -T.infinity(dtype),  # to avoid -inf - (-inf) = nan case
+                    0,
+                    T.exp2(cur_QK[h, i, j] * log2_e - cur_max_QK[h, i] * log2_e),
                 )
 
             T.reduce_sum(cur_exp_QK, cur_sum_exp_QK, dim=2, clear=True)
 
             for h, i in T.Parallel(head_num, BLOCK_B):
-                lse[h, i] = cur_max_QK[h, i] * log2_e + T.log2(
-                    T.exp2(lse[h, i] - cur_max_QK[h, i] * log2_e) + cur_sum_exp_QK[h, i]
+                lse[h, i] = T.if_then_else(
+                    cur_sum_exp_QK[h, i]
+                    == 0,  # if all positions are masked, then no op on this row
+                    lse[h, i],
+                    cur_max_QK[h, i] * log2_e
+                    + T.log2(
+                        T.exp2(lse[h, i] - cur_max_QK[h, i] * log2_e)
+                        + cur_sum_exp_QK[h, i]
+                    ),
                 )
 
         # The second loop use LSE to get the final output.
@@ -139,7 +158,14 @@ def grouped_attention(Q, K, V, BLOCK_B: int, BLOCK_S: int):
 
             for h, i, j in T.Parallel(head_num, BLOCK_B, BLOCK_S):
                 O_local[h, i, j] = (
-                    T.exp2(Q_local[h, i, j] * K_local[i, j] * log2_e - lse[h, i])
+                    T.exp2(
+                        (
+                            Q_local[h, i, j] * K_local[i, j]
+                            + mask[pid_b * BLOCK_B + i, s_blk_id * BLOCK_S + j]
+                        )
+                        * log2_e
+                        - lse[h, i]
+                    )
                     * V_local[i, j]
                 )
             for h, i, j in T.Parallel(head_num, BLOCK_B, BLOCK_S):
