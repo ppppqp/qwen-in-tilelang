@@ -43,9 +43,9 @@ def test_grouped_attention():
         B, S = K.shape
         head_num = Q.shape[0] // B
         Q_grouped = Q.reshape(head_num, B, S)
-        return (torch.softmax(Q_grouped * K.unsqueeze(0), dim=2) * V.unsqueeze(0)).reshape(
-            Q.shape
-        )
+        return (
+            torch.softmax(Q_grouped * K.unsqueeze(0), dim=2) * V.unsqueeze(0)
+        ).reshape(Q.shape)
 
     QB = 512
     B = 256

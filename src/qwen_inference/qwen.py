@@ -3,7 +3,7 @@ import tilelang.language as T
 import torch
 
 from .basics import linear, silu, rms_norm
-from .attention import scaled_dot_product_attention_grouped
+from .attention import grouped_attention, scaled_dot_product_attention_grouped
 from .basics import RMSNorm
 from .rope import RoPE
 from typing import Any
@@ -97,7 +97,15 @@ class Qwen3MultiHeadAttention:
         projection_q = projection_q.transpose(0, 2, 1, 3)
         projection_k = projection_k.transpose(0, 2, 1, 3)
         projection_v = projection_v.transpose(0, 2, 1, 3)
-        # x = run_kernel()
+
+        x = (
+            run_kernel(
+                grouped_attention,
+                inputs=[projection_q, projection_k, projection_v, self.scale, mask],
+            )
+            .transpose(0, 2, 1, 3)
+            .reshape(B, L, self.num_heads * self.head_dim)
+        )
 
         x = scaled_dot_product_attention_grouped(
             projection_q.astype(mx.float32),

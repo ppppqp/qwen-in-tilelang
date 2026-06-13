@@ -88,10 +88,10 @@ def grouped_attention(Q, K, V, BLOCK_B: int, BLOCK_S: int):
 
     head_num = QB // B
     with T.Kernel(B // BLOCK_B, threads=256) as pid_b:
-        Q_local = T.alloc_fragment((BLOCK_B * head_num, BLOCK_S), dtype)
+        Q_local = T.alloc_fragment((head_num, BLOCK_B, BLOCK_S), dtype)
         K_local = T.alloc_fragment((BLOCK_B, BLOCK_S), dtype)
         V_local = T.alloc_fragment((BLOCK_B, BLOCK_S), dtype)
-        O_local = T.alloc_fragment((BLOCK_B * head_num, BLOCK_S), dtype)
+        O_local = T.alloc_fragment((head_num, BLOCK_B, BLOCK_S), dtype)
 
         cur_QK = T.alloc_fragment([head_num, BLOCK_B, BLOCK_S], dtype)
         cur_exp_QK = T.alloc_fragment([head_num, BLOCK_B, BLOCK_S], dtype)
@@ -104,17 +104,14 @@ def grouped_attention(Q, K, V, BLOCK_B: int, BLOCK_S: int):
 
         # The first loop use an online algorithm to compute LSE.
         for s_blk_id in T.Serial(S // BLOCK_S):
-            # copy with reshape?
-            for h in T.Serial(head_num):
-                T.copy(
-                    Q[h * B + pid_b * BLOCK_B, s_blk_id * BLOCK_S],
-                    Q_local[h * BLOCK_B, :],
-                )
-            Q_local_reshaped = T.reshape(Q_local, (head_num, BLOCK_B, BLOCK_S))
+            for h, i, j in T.Parallel(head_num, BLOCK_B, BLOCK_S):
+                Q_local[h, i, j] = Q[
+                    h * B + pid_b * BLOCK_B + i, s_blk_id * BLOCK_S + j
+                ]
             T.copy(K[pid_b * BLOCK_B, s_blk_id * BLOCK_S], K_local)
 
             for h, i, j in T.Parallel(head_num, BLOCK_B, BLOCK_S):
-                cur_QK[h, i, j] = Q_local_reshaped[h, i, j] * K_local[i, j]
+                cur_QK[h, i, j] = Q_local[h, i, j] * K_local[i, j]
 
             T.reduce_max(cur_QK, cur_max_QK, dim=2, clear=True)
 
@@ -133,27 +130,22 @@ def grouped_attention(Q, K, V, BLOCK_B: int, BLOCK_S: int):
         # The second loop use LSE to get the final output.
         # TODO: improve the efficiency here. Maybe pipeline it?
         for s_blk_id in T.Serial(S // BLOCK_S):
-            for h in T.Serial(head_num):
-                T.copy(
-                    Q[h * B + pid_b * BLOCK_B, s_blk_id * BLOCK_S],
-                    Q_local[h * BLOCK_B, :],
-                )
-            Q_local_reshaped = T.reshape(Q_local, (head_num, BLOCK_B, BLOCK_S))
+            for h, i, j in T.Parallel(head_num, BLOCK_B, BLOCK_S):
+                Q_local[h, i, j] = Q[
+                    h * B + pid_b * BLOCK_B + i, s_blk_id * BLOCK_S + j
+                ]
             T.copy(K[pid_b * BLOCK_B, s_blk_id * BLOCK_S], K_local)
             T.copy(V[pid_b * BLOCK_B, s_blk_id * BLOCK_S], V_local)
 
             for h, i, j in T.Parallel(head_num, BLOCK_B, BLOCK_S):
-                O_local[h * BLOCK_B + i, j] = (
-                    T.exp2(
-                        Q_local_reshaped[h, i, j] * K_local[i, j] * log2_e - lse[h, i]
-                    )
+                O_local[h, i, j] = (
+                    T.exp2(Q_local[h, i, j] * K_local[i, j] * log2_e - lse[h, i])
                     * V_local[i, j]
                 )
-            for h in T.Serial(head_num):
-                T.copy(
-                    O_local[h * BLOCK_B, :],
-                    O[h * B + pid_b * BLOCK_B, s_blk_id * BLOCK_S],
-                )
+            for h, i, j in T.Parallel(head_num, BLOCK_B, BLOCK_S):
+                O[h * B + pid_b * BLOCK_B + i, s_blk_id * BLOCK_S + j] = O_local[
+                    h, i, j
+                ]
 
     return O
 
