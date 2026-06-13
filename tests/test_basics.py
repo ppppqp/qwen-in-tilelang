@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from qwen_inference.basics import linear, rms_norm, softmax
+from qwen_inference.basics import linear, rms_norm, silu, softmax
 from tests.common_test_utils import kernel_tester
 
 
@@ -57,6 +57,27 @@ def test_linear():
     )
     assert match, "Linear test failed!"
     print("Linear test passed!")
+
+
+def test_silu():
+    def ref_silu(X: torch.Tensor):
+        assert len(X.shape) == 2
+        assert X.dtype == torch.float16
+        return torch.nn.functional.silu(X).to(torch.float16)
+
+    M = 256
+    N = 128
+    BLOCK_M = 16
+    BLOCK_N = 128
+    match = kernel_tester(
+        silu,
+        ref_silu,
+        {"M": M, "N": N, "BLOCK_M": BLOCK_M, "BLOCK_N": BLOCK_N},
+        atol=1e-2,
+        rtol=1e-2,
+    )
+    assert match, "SiLU test failed!"
+    print("SiLU test passed!")
 
 
 def test_rms_norm():

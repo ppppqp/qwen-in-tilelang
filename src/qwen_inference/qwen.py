@@ -114,9 +114,24 @@ class Qwen3MLP:
         self.w_gate = w_gate
         self.w_up = w_up
         self.w_down = w_down
+        self.empty_bias = torch.zeros(dim, dtype=torch.float16)
 
+    # TODO: fusion
     def __call__(self, x: torch.tensor) -> torch.tensor:
-        return linear(silu(linear(x, self.w_gate)) * linear(x, self.w_up), self.w_down)
+
+        # return linear(silu(linear(x, self.w_gate)) * linear(x, self.w_up), self.w_down)
+        project_gate = run_kernel(
+            kernel=linear, inputs=[x, self.w_gate, self.empty_bias]
+        )
+        project_gate_silu = run_kernel(kernel=silu, inputs=[project_gate])
+        project_up = (
+            run_kernel(kernel=linear, inputs=[x, self.w_up, self.empty_bias])
+            * project_gate_silu
+        )
+        project_down = run_kernel(
+            kernel=linear, inputs=[project_up, self.w_down, self.empty_bias]
+        )
+        return project_down
 
 
 class Qwen3TransformerBlock:
@@ -175,74 +190,6 @@ class Qwen3TransformerBlock:
         r = self.mlp(self.post_attention_layernorm(h))
         out = h + r
         return out
-
-
-class Qwen3ModelWeek1:
-    def __init__(
-        self,
-        mlx_model: Any,
-    ):
-        self.num_hidden_layers = mlx_model.args.num_hidden_layers
-        self.hidden_size = mlx_model.args.hidden_size
-        self.vocab_size = mlx_model.args.vocab_size
-        precision = mx.bfloat16
-        self.precision = precision
-
-        self.embedding = Embedding(
-            vocab_size=self.vocab_size,
-            embedding_dim=self.hidden_size,
-            weight=dequantize_linear(mlx_model.model.embed_tokens),
-        )
-        self.layers_inner = []
-
-        for i in range(mlx_model.args.num_hidden_layers):
-            layer = Qwen3TransformerBlock(
-                num_attention_heads=mlx_model.args.num_attention_heads,
-                num_kv_heads=mlx_model.args.num_key_value_heads,
-                hidden_size=mlx_model.args.hidden_size,
-                head_dim=mlx_model.args.head_dim,
-                intermediate_size=mlx_model.args.intermediate_size,
-                rms_norm_eps=mlx_model.args.rms_norm_eps,
-                wq=dequantize_linear(mlx_model.model.layers[i].self_attn.q_proj),
-                wk=dequantize_linear(mlx_model.model.layers[i].self_attn.k_proj),
-                wv=dequantize_linear(mlx_model.model.layers[i].self_attn.v_proj),
-                wo=dequantize_linear(mlx_model.model.layers[i].self_attn.o_proj),
-                q_norm=mlx_model.model.layers[i].self_attn.q_norm.weight,
-                k_norm=mlx_model.model.layers[i].self_attn.k_norm.weight,
-                w_gate=dequantize_linear(mlx_model.model.layers[i].mlp.gate_proj),
-                w_up=dequantize_linear(mlx_model.model.layers[i].mlp.up_proj),
-                w_down=dequantize_linear(mlx_model.model.layers[i].mlp.down_proj),
-                w_input_layernorm=mlx_model.model.layers[i].input_layernorm.weight,
-                w_post_attention_layernorm=mlx_model.model.layers[
-                    i
-                ].post_attention_layernorm.weight,
-                max_seq_len=mlx_model.args.max_position_embeddings,
-                theta=mlx_model.args.rope_theta,
-            )
-            self.layers_inner.append(layer)
-        self.norm = RMSNorm(
-            mlx_model.args.hidden_size,
-            weight=mlx_model.model.norm.weight,
-            eps=mlx_model.args.rms_norm_eps,
-        )
-        if not mlx_model.args.tie_word_embeddings:
-            self.w_lm_head = dequantize_linear(mlx_model.lm_head)
-        else:
-            self.w_lm_head = None
-        self.mlx_model = mlx_model
-
-    def __call__(
-        self,
-        inputs: torch.tensor,
-    ) -> torch.tensor:
-        h = self.embedding(inputs)
-        for layer in range(self.num_hidden_layers):
-            h = self.layers_inner[layer](h, mask="causal")
-        h = self.norm(h)
-        if self.w_lm_head is not None:
-            return linear(h, self.w_lm_head)
-        else:
-            return self.embedding.as_linear(h)
 
 
 @dataclass

@@ -1,3 +1,5 @@
+import torch
+
 from qwen_inference.utils import run_kernel
 import tilelang
 import tilelang.language as T
@@ -79,9 +81,30 @@ def linear(X, W, b, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int):
     return O
 
 
-def silu(X):
-    N, M = T.const("M, N")
-    pass
+@tilelang.jit
+def silu(X, BLOCK_M, BLOCK_N):
+    M, N = T.const("M, N")
+    dtype = T.float16
+    accum_dtype = T.float32
+    X: T.Tensor((M, N), dtype)
+    O = T.empty((M, N), dtype)
+    log2_e = 1.44269504
+    with T.Kernel(
+        T.ceildiv(M, BLOCK_M),
+        threads=128,
+    ) as pid_n:
+        X_local = T.alloc_fragment((BLOCK_M, BLOCK_N), dtype)
+        O_local = T.alloc_fragment((BLOCK_M, BLOCK_N), dtype)
+
+        T.copy(X[pid_n * BLOCK_M, 0], X_local)
+
+        for i, j in T.Parallel(BLOCK_M, BLOCK_N):
+            x = X_local[i, j].astype(accum_dtype)
+            O_local[i, j] = (x / (1 + T.exp2(-x * log2_e))).astype(dtype)
+
+        T.copy(O_local, O[pid_n * BLOCK_M, 0])
+
+    return O
 
 
 @tilelang.jit
