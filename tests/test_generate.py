@@ -22,8 +22,8 @@ class FakeTokenizer:
 
 
 def _tiny_qwen3_model(device: str) -> Qwen3Model:
-    vocab_size = 6
-    hidden_size = 6
+    vocab_size = 128
+    hidden_size = 128
     dtype = torch.float16
 
     embedding = torch.eye(vocab_size, hidden_size, dtype=dtype, device=device)
@@ -39,8 +39,8 @@ def _tiny_qwen3_model(device: str) -> Qwen3Model:
         num_hidden_layers=0,
         hidden_size=hidden_size,
         vocab_size=vocab_size,
-        num_attention_heads=1,
-        num_kv_heads=1,
+        num_attention_heads=16,
+        num_kv_heads=4,
         intermediate_size=hidden_size,
         rms_norm_eps=1e-5,
         head_dim=hidden_size,

@@ -315,9 +315,9 @@ class Qwen3Model:
                     "M": batch_size * seq_len,
                     "N": self.vocab_size,
                     "K": self.hidden_size,
-                    "BLOCK_M": 1,
-                    "BLOCK_N": self.vocab_size,
-                    "BLOCK_K": self.hidden_size,
+                    "BLOCK_M": 16,
+                    "BLOCK_N": 64,
+                    "BLOCK_K": 64,
                 },
             )
             return logits.reshape(batch_size, seq_len, self.vocab_size)
