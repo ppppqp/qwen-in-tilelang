@@ -5,7 +5,7 @@ import tilelang.language as T
 import torch
 
 from .basics import linear, silu, rms_norm
-from .attention import grouped_attention, scaled_dot_product_attention_grouped
+from .attention import grouped_attention
 from .basics import RMSNorm
 from .rope import RoPE
 from .embedding import Embedding
