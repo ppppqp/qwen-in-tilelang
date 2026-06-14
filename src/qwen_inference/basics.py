@@ -81,6 +81,17 @@ def linear(X, W, b, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int):
     return O
 
 
+# TODO: implement this
+@tilelang.jit
+def quantized_linear(X, W, b, group_size, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int):
+    M, N, K = T.const("M, N, K")
+    dtype = T.float16
+    accum_dtype = T.float32
+    X: T.Tensor((M, K), dtype)
+    W: T.Tensor((K, N), dtype)
+    pass
+
+
 @tilelang.jit
 def silu(X, BLOCK_M, BLOCK_N):
     M, N = T.const("M, N")
