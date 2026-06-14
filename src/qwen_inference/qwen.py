@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 import tilelang.language as T
 import torch
@@ -6,10 +8,8 @@ from .basics import linear, silu, rms_norm
 from .attention import grouped_attention, scaled_dot_product_attention_grouped
 from .basics import RMSNorm
 from .rope import RoPE
-from typing import Any
 from .embedding import Embedding
-from .quantize import dequantize_linear
-from utils import run_kernel
+from .utils import run_kernel
 
 
 class Qwen3MultiHeadAttention:
@@ -36,7 +36,7 @@ class Qwen3MultiHeadAttention:
             f"num_heads {num_heads} must be divisible by num_kv_heads {num_kv_heads}"
         )
         self.head_dim = head_dim
-        self.scale = torch.rsqrt(self.head_dim)
+        self.scale = self.head_dim**-0.5
         self.wq = wq
         self.wk = wk
         self.wv = wv
@@ -47,7 +47,9 @@ class Qwen3MultiHeadAttention:
         self.rms_norm_eps = rms_norm_eps
         self.rope_base = float(theta)
         # empty bias for reusing
-        self.empty_bias = torch.zeros(self.hidden_size, dtype=torch.float16)
+        self.empty_bias = torch.zeros(
+            self.hidden_size, dtype=wq.dtype, device=wq.device
+        )
 
         # TODO: precompile all kernels
         # TODO: BLOCK hyper parameter and autotuning
@@ -114,7 +116,7 @@ class Qwen3MLP:
         self.w_gate = w_gate
         self.w_up = w_up
         self.w_down = w_down
-        self.empty_bias = torch.zeros(dim, dtype=torch.float16)
+        self.empty_bias = torch.zeros(dim, dtype=w_down.dtype, device=w_down.device)
 
     # TODO: fusion
     def __call__(self, x: torch.tensor) -> torch.tensor:
@@ -202,12 +204,16 @@ class Qwen3ModelConfig:
     intermediate_size: int
     rms_norm_eps: float
     head_dim: int
+    max_position_embeddings: int = 32768
+    rope_theta: int = 1000000
+    tie_word_embeddings: bool = False
 
 
 class Qwen3Model:
     def __init__(
         self,
         model_config: Qwen3ModelConfig,
+        state_dict: dict[str, torch.Tensor],
     ):
         self.num_hidden_layers = model_config.num_hidden_layers
         self.hidden_size = model_config.hidden_size
@@ -215,14 +221,26 @@ class Qwen3Model:
         precision = T.bfloat16
         self.precision = precision
 
+        def tensor(name: str) -> torch.Tensor:
+            try:
+                return state_dict[name].contiguous()
+            except KeyError as exc:
+                raise KeyError(f"Missing model tensor: {name}") from exc
+
+        def linear_weight(name: str) -> torch.Tensor:
+            # Hugging Face stores linear weights as (out_features, in_features).
+            # The local TileLang linear kernel expects (in_features, out_features).
+            return tensor(name).T.contiguous()
+
         self.embedding = Embedding(
             vocab_size=self.vocab_size,
             embedding_dim=self.hidden_size,
-            weight=dequantize_linear(mlx_model.model.embed_tokens),
+            weight=tensor("model.embed_tokens.weight"),
         )
         self.layers_inner = []
 
         for i in range(model_config.num_hidden_layers):
+            prefix = f"model.layers.{i}"
             layer = Qwen3TransformerBlock(
                 num_attention_heads=model_config.num_attention_heads,
                 num_kv_heads=model_config.num_kv_heads,
@@ -230,33 +248,33 @@ class Qwen3Model:
                 head_dim=model_config.head_dim,
                 intermediate_size=model_config.intermediate_size,
                 rms_norm_eps=model_config.rms_norm_eps,
-                wq=dequantize_linear(mlx_model.model.layers[i].self_attn.q_proj),
-                wk=dequantize_linear(mlx_model.model.layers[i].self_attn.k_proj),
-                wv=dequantize_linear(mlx_model.model.layers[i].self_attn.v_proj),
-                wo=dequantize_linear(mlx_model.model.layers[i].self_attn.o_proj),
-                q_norm=mlx_model.model.layers[i].self_attn.q_norm.weight,
-                k_norm=mlx_model.model.layers[i].self_attn.k_norm.weight,
-                w_gate=dequantize_linear(mlx_model.model.layers[i].mlp.gate_proj),
-                w_up=dequantize_linear(mlx_model.model.layers[i].mlp.up_proj),
-                w_down=dequantize_linear(mlx_model.model.layers[i].mlp.down_proj),
-                w_input_layernorm=mlx_model.model.layers[i].input_layernorm.weight,
-                w_post_attention_layernorm=mlx_model.model.layers[
-                    i
-                ].post_attention_layernorm.weight,
+                wq=linear_weight(f"{prefix}.self_attn.q_proj.weight"),
+                wk=linear_weight(f"{prefix}.self_attn.k_proj.weight"),
+                wv=linear_weight(f"{prefix}.self_attn.v_proj.weight"),
+                wo=linear_weight(f"{prefix}.self_attn.o_proj.weight"),
+                q_norm=tensor(f"{prefix}.self_attn.q_norm.weight"),
+                k_norm=tensor(f"{prefix}.self_attn.k_norm.weight"),
+                w_gate=linear_weight(f"{prefix}.mlp.gate_proj.weight"),
+                w_up=linear_weight(f"{prefix}.mlp.up_proj.weight"),
+                w_down=linear_weight(f"{prefix}.mlp.down_proj.weight"),
+                w_input_layernorm=tensor(f"{prefix}.input_layernorm.weight"),
+                w_post_attention_layernorm=tensor(
+                    f"{prefix}.post_attention_layernorm.weight"
+                ),
                 max_seq_len=model_config.max_position_embeddings,
                 theta=model_config.rope_theta,
             )
             self.layers_inner.append(layer)
         self.norm = RMSNorm(
             model_config.hidden_size,
-            weight=mlx_model.model.norm.weight,
+            weight=tensor("model.norm.weight"),
             eps=model_config.rms_norm_eps,
         )
         if not model_config.tie_word_embeddings:
-            self.w_lm_head = dequantize_linear(mlx_model.lm_head)
+            self.w_lm_head = linear_weight("lm_head.weight")
         else:
             self.w_lm_head = None
-        self.mlx_model = mlx_model
+        self.state_dict = state_dict
 
     def __call__(
         self,

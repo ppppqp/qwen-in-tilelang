@@ -2,6 +2,7 @@ from qwen_inference.utils import run_kernel
 import tilelang
 import tilelang.language as T
 from tilelang.jit import JITKernel, JITImpl
+import torch
 
 
 @tilelang.jit
