@@ -1,9 +1,7 @@
-# import mlx.core as mx
+from __future__ import annotations
 
-# from mlx_lm.tokenizer_utils import TokenizerWrapper
-# from .kv_cache import *
 from .qwen import Qwen3Model
-from typing import Callable
+from typing import Any, Callable
 import torch
 
 
@@ -14,18 +12,18 @@ def _release_kv_cache(kv_cache):
 
 def simple_generate(
     model: Qwen3Model,
-    tokenizer: TokenizerWrapper,
+    tokenizer: Any,
     prompt: str,
-    sampler: Callable[[torch.tensor], torch.tensor] | None,
+    sampler: Callable[[torch.Tensor], torch.Tensor] | None,
+    device: str | torch.device = "cuda",
+    max_new_tokens: int = 128,
 ) -> str:
     def _step(model, y):
         logits = model(y[None])
         logits = logits[:, -1, :]
-        logprobs = logits - mx.logsumexp(
-            logits, keepdims=True
-        )  # optional -- for numerical stability
+        logprobs = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
         if sampler is None:
-            y = mx.argmax(logprobs, axis=-1)
+            y = torch.argmax(logprobs, dim=-1)
         else:
             y = sampler(logprobs)
         return y
@@ -33,17 +31,19 @@ def simple_generate(
     # prefill with the prompt
     tokens = torch.tensor(
         tokenizer.encode(prompt, add_special_tokens=False),
-        device="cuda",
+        device=device,
         dtype=torch.long,
     )
-    detokenizer = tokenizer.detokenizer
-    detokenizer.reset()
+    generated: list[int] = []
     # generate/decode
-    while True:
+    for _ in range(max_new_tokens):
         token = _step(model, tokens)
-        mx.eval(token)
-        tokens = mx.concat([tokens, token])
-        if token.item() == tokenizer.eos_token_id:
+        token_id = int(token.item())
+        tokens = torch.cat([tokens, token])
+        if token_id == tokenizer.eos_token_id:
             break
-        detokenizer.add_token(token.item())
-        print(detokenizer.last_segment, end="", flush=True)
+        generated.append(token_id)
+        print(tokenizer.decode(generated, skip_special_tokens=True), end="\r", flush=True)
+    text = tokenizer.decode(generated, skip_special_tokens=True)
+    print(text, flush=True)
+    return text
