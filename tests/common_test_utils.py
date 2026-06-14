@@ -85,9 +85,9 @@ def kernel_tester(
     if not match or print_log:
         # print("Hyper parameters: ", hyper_params)
         print("TileLang Hyper parameters: ", tl_hyper_params)
-        print("Inputs: ", inputs_in_torch_tensors)
+        # print("Inputs: ", inputs_in_torch_tensors)
         print("Yours:", output_tl.dtype, output_tl.shape, "\n", output_tl)
-        print("Spec:", output_torch.dtype, output_torch.shape, "\n", output_torch)
+        # print("Spec:", output_torch.dtype, output_torch.shape, "\n", output_torch)
         diff = torch.isclose(output_torch, output_tl, atol=atol, rtol=rtol)
         print(
             "Diff (True: correct, False: incorrect):",

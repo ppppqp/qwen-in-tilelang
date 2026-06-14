@@ -50,14 +50,13 @@ class Qwen3MultiHeadAttention:
         self.empty_bias = torch.zeros(
             self.hidden_size, dtype=wq.dtype, device=wq.device
         )
-
         # TODO: precompile all kernels
         # TODO: BLOCK hyper parameter and autotuning
 
     def __call__(
         self,
         x: torch.tensor,
-        mask: torch.tensor | str | None = None,
+        is_causal: bool = True,
     ) -> torch.tensor:
         B, L, _ = x.shape
         projection_q = run_kernel(
@@ -65,7 +64,7 @@ class Qwen3MultiHeadAttention:
         ).reshape(B, L, self.num_heads, self.head_dim)
         projection_k = run_kernel(
             kernel=linear, inputs=[x, self.wk, self.empty_bias]
-        ).reshape(B, L, self.num_heads, self.head_dim)
+        ).reshape(B, L, self.num_kv_heads, self.head_dim)
         projection_q = run_kernel(
             kernel=rms_norm,
             inputs=[projection_q, self.q_norm, self.rms_norm_eps],
@@ -81,25 +80,40 @@ class Qwen3MultiHeadAttention:
         projection_q = self.rope(projection_q)
         projection_k = self.rope(projection_k)
 
-        projection_q = projection_q.transpose(0, 2, 1, 3)
-        projection_k = projection_k.transpose(0, 2, 1, 3)
-        projection_v = projection_v.transpose(0, 2, 1, 3)
-
         # TODO: potentially fix precision here
         # TODO: custom scale
-        x = (
-            run_kernel(
-                grouped_attention,
-                inputs=[projection_q, projection_k, projection_v, mask],
-            )
-            .transpose(0, 2, 1, 3)
-            .reshape(B, L, self.num_heads * self.head_dim)
+        x = run_kernel(
+            grouped_attention,
+            inputs=[projection_q, projection_k, projection_v],
+            tl_hyper_params={
+                "N": B,
+                "QH": self.num_heads,
+                "H": self.num_kv_heads,
+                "S": L,
+                "D": self.head_dim,
+                "is_causal": is_causal,
+                "BLOCK_L": 16,
+                "BLOCK_S": 16,
+            },
+        ).reshape(B, L, self.num_heads * self.head_dim)
+
+        x_flat = x.reshape(B * L, self.num_heads * self.head_dim)
+        output_bias = torch.zeros(
+            (B * L, self.hidden_size), dtype=x.dtype, device=x.device
         )
-
-        x = x.transpose(0, 2, 1, 3).reshape(B, L, self.num_heads * self.head_dim)
-
-        output = run_kernel(kernel=linear, inputs=[x, self.wo, self.empty_bias])
-        return output
+        output = run_kernel(
+            kernel=linear,
+            inputs=[x_flat, self.wo, output_bias],
+            tl_hyper_params={
+                "M": B * L,
+                "N": self.hidden_size,
+                "K": self.num_heads * self.head_dim,
+                "BLOCK_M": 16,
+                "BLOCK_N": 64,
+                "BLOCK_K": self.head_dim,
+            },
+        )
+        return output.reshape(B, L, self.hidden_size)
 
 
 class Qwen3MLP:
@@ -185,9 +199,9 @@ class Qwen3TransformerBlock:
     def __call__(
         self,
         x: torch.tensor,
-        mask: torch.tensor | str | None = None,
+        is_causal: bool = True,
     ) -> torch.tensor:
-        r = self.self_attn(self.input_layernorm(x), mask)
+        r = self.self_attn(self.input_layernorm(x), is_causal=is_causal)
         h = x + r
         r = self.mlp(self.post_attention_layernorm(h))
         out = h + r
@@ -280,11 +294,32 @@ class Qwen3Model:
         self,
         inputs: torch.tensor,
     ) -> torch.tensor:
+
         h = self.embedding(inputs)
         for layer in range(self.num_hidden_layers):
-            h = self.layers_inner[layer](h, mask="causal")
-        h = self.norm(h)
+            h = self.layers_inner[layer](h, is_causal=True)
+        if self.num_hidden_layers > 0:
+            h = self.norm(h)
+        batch_size, seq_len, _ = h.shape
+        h_flat = h.reshape(batch_size * seq_len, self.hidden_size)
         if self.w_lm_head is not None:
-            return linear(h, self.w_lm_head)
+            bias = torch.zeros(
+                (batch_size * seq_len, self.vocab_size),
+                dtype=h.dtype,
+                device=h.device,
+            )
+            logits = run_kernel(
+                kernel=linear,
+                inputs=[h_flat, self.w_lm_head, bias],
+                tl_hyper_params={
+                    "M": batch_size * seq_len,
+                    "N": self.vocab_size,
+                    "K": self.hidden_size,
+                    "BLOCK_M": 1,
+                    "BLOCK_N": self.vocab_size,
+                    "BLOCK_K": self.hidden_size,
+                },
+            )
+            return logits.reshape(batch_size, seq_len, self.vocab_size)
         else:
             return self.embedding.as_linear(h)

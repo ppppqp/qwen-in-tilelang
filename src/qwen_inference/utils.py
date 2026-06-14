@@ -8,5 +8,5 @@ def run_kernel(
     tl_hyper_params: dict = {},
 ) -> torch.tensor:
     tl_kernel = kernel.compile(**tl_hyper_params)
-    output = tl_kernel(inputs)
+    output = tl_kernel(*inputs)
     return output

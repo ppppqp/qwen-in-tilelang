@@ -3,8 +3,9 @@ from __future__ import annotations
 from tests.common_test_utils import (
     kernel_tester,
 )
-from qwen_inference.attention import attention, causal_mask, grouped_attention
+from qwen_inference.attention import attention, grouped_attention
 import torch
+import torch.nn.functional as F
 
 
 def test_attention():
@@ -31,41 +32,55 @@ def test_attention():
 
 
 def test_grouped_attention():
-    def ref_grouped_attention(
-        Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, mask: torch.Tensor
-    ):
-        assert len(Q.shape) == 2
-        assert len(K.shape) == 2
-        assert len(V.shape) == 2
-        assert len(mask.shape) == 2
+    is_causal = True
+
+    def ref_grouped_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor):
+        assert len(Q.shape) == 4
+        assert len(K.shape) == 4
+        assert len(V.shape) == 4
         assert K.shape == V.shape
-        assert mask.shape == K.shape
-        assert Q.shape[1] == K.shape[1] == V.shape[1]  # S
-        assert Q.shape[0] % K.shape[0] == 0  # QB = head_num * B
-        assert Q.dtype == K.dtype == V.dtype == mask.dtype == torch.float32
+        assert Q.dtype == K.dtype == V.dtype == torch.float16
 
-        B, S = K.shape
-        head_num = Q.shape[0] // B
-        Q_grouped = Q.reshape(head_num, B, S)
-        return (
-            torch.softmax(Q_grouped * K.unsqueeze(0) + mask.unsqueeze(0), dim=2)
-            * V.unsqueeze(0)
-        ).reshape(Q.shape)
+        N, L, QH, D = Q.shape
+        _, S, H, _ = K.shape
+        assert QH % H == 0
+        group_size = QH // H
+        output = F.scaled_dot_product_attention(
+            Q.transpose(1, 2),
+            K.transpose(1, 2),
+            V.transpose(1, 2),
+            is_causal=is_causal,
+            enable_gqa=True,
+        )
+        return output.transpose(1, 2)
 
-    QB = 512
-    B = 256
-    S = 16384
-    BLOCK_B = 16
-    BLOCK_S = 128
-    Q = torch.randn((QB, S), dtype=torch.float32, device="cuda")
-    K = torch.randn((B, S), dtype=torch.float32, device="cuda")
-    V = torch.randn((B, S), dtype=torch.float32, device="cuda")
-    mask = causal_mask(B, S, torch.float32, device=torch.device("cuda"))
+    N = 32
+    L = 128
+    S = 128
+    QH = 16
+    H = 4
+    D = 128
+    BLOCK_L = 16
+    BLOCK_S = 16
+    Q = torch.randn((N, L, QH, D), dtype=torch.float16, device="cuda")
+    K = torch.randn((N, S, H, D), dtype=torch.float16, device="cuda")
+    V = torch.randn((N, S, H, D), dtype=torch.float16, device="cuda")
     match = kernel_tester(
         grouped_attention,
         ref_grouped_attention,
-        {"QB": QB, "B": B, "S": S, "BLOCK_B": BLOCK_B, "BLOCK_S": BLOCK_S},
-        inputs_in_torch_tensors=[Q, K, V, mask],
+        {
+            "N": N,
+            "QH": QH,
+            "H": H,
+            "S": S,
+            "D": D,
+            "is_causal": is_causal,
+            "BLOCK_L": BLOCK_L,
+            "BLOCK_S": BLOCK_S,
+        },
+        inputs_in_torch_tensors=[Q, K, V],
+        atol=1e-2,
+        rtol=1e-2,
     )
     assert match, "Grouped attention test failed!"
     print("Grouped attention test passed!")
