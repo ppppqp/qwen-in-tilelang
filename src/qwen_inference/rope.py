@@ -113,15 +113,21 @@ class RoPE:
         self.traditional = traditional
 
     def __call__(self, x: torch.Tensor, _offset: int = 0) -> torch.Tensor:
-        run_kernel(
+        x_dtype = x.dtype
+        out = run_kernel(
             kernel=rope,
-            inputs=[x],
+            inputs=[x.to(torch.float32)],
             tl_hyper_params={
+                "N": x.shape[0],
+                "S": x.shape[1],
+                "H": x.shape[2],
+                "D": x.shape[3],
                 "base": self.base,
                 "offset": _offset,
-                "BLOCK_N": 64,
-                "BLOCK_S": 128,
-                "BLOCK_H": 16,
-                "BLOCK_D": 16,
+                "BLOCK_N": 1,
+                "BLOCK_S": 16,
+                "BLOCK_H": 1,
+                "BLOCK_D": min(16, self.dims // 2),
             },
         )
+        return out.to(x_dtype)

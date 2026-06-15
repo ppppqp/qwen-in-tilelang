@@ -168,12 +168,17 @@ class RMSNorm:
         self.weight = weight
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
-        orig_dtype = x.dtype
-        x = x.to(torch.float32)
-        run_kernel(
+        orig_shape = x.shape
+        x_flat = x.reshape(-1, self.dim)
+        out = run_kernel(
             kernel=rms_norm,
-            inputs=[x, self.weight, self.eps],
-            tl_hyper_params={"BLOCK_M": 64, "BLOCK_N": 128},
+            inputs=[x_flat, self.weight],
+            tl_hyper_params={
+                "M": x_flat.shape[0],
+                "N": self.dim,
+                "eps": self.eps,
+                "BLOCK_M": 16,
+                "BLOCK_N": self.dim,
+            },
         )
-        x = x.to(orig_dtype)
-        return x
+        return out.reshape(orig_shape)

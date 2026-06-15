@@ -35,15 +35,20 @@ def _tiny_qwen3_model(device: str) -> Qwen3Model:
     lm_head[4, 3] = 10.0
     lm_head[5, 4] = 10.0
 
+    num_attention_heads = 4
+    num_kv_heads = 2
+    head_dim = hidden_size // num_attention_heads
+    kv_hidden_size = num_kv_heads * head_dim
+
     config = Qwen3ModelConfig(
-        num_hidden_layers=0,
+        num_hidden_layers=1,
         hidden_size=hidden_size,
         vocab_size=vocab_size,
-        num_attention_heads=16,
-        num_kv_heads=4,
+        num_attention_heads=num_attention_heads,
+        num_kv_heads=num_kv_heads,
         intermediate_size=hidden_size,
         rms_norm_eps=1e-5,
-        head_dim=hidden_size,
+        head_dim=head_dim,
         tie_word_embeddings=False,
     )
     state_dict = {
@@ -51,6 +56,44 @@ def _tiny_qwen3_model(device: str) -> Qwen3Model:
         "model.norm.weight": torch.ones(hidden_size, dtype=dtype, device=device),
         "lm_head.weight": lm_head,
     }
+    layer_prefix = "model.layers.0"
+    state_dict.update(
+        {
+            f"{layer_prefix}.self_attn.q_proj.weight": torch.zeros(
+                (hidden_size, hidden_size), dtype=dtype, device=device
+            ),
+            f"{layer_prefix}.self_attn.k_proj.weight": torch.zeros(
+                (kv_hidden_size, hidden_size), dtype=dtype, device=device
+            ),
+            f"{layer_prefix}.self_attn.v_proj.weight": torch.zeros(
+                (kv_hidden_size, hidden_size), dtype=dtype, device=device
+            ),
+            f"{layer_prefix}.self_attn.o_proj.weight": torch.zeros(
+                (hidden_size, hidden_size), dtype=dtype, device=device
+            ),
+            f"{layer_prefix}.self_attn.q_norm.weight": torch.ones(
+                head_dim, dtype=dtype, device=device
+            ),
+            f"{layer_prefix}.self_attn.k_norm.weight": torch.ones(
+                head_dim, dtype=dtype, device=device
+            ),
+            f"{layer_prefix}.mlp.gate_proj.weight": torch.zeros(
+                (hidden_size, hidden_size), dtype=dtype, device=device
+            ),
+            f"{layer_prefix}.mlp.up_proj.weight": torch.zeros(
+                (hidden_size, hidden_size), dtype=dtype, device=device
+            ),
+            f"{layer_prefix}.mlp.down_proj.weight": torch.zeros(
+                (hidden_size, hidden_size), dtype=dtype, device=device
+            ),
+            f"{layer_prefix}.input_layernorm.weight": torch.ones(
+                hidden_size, dtype=dtype, device=device
+            ),
+            f"{layer_prefix}.post_attention_layernorm.weight": torch.ones(
+                hidden_size, dtype=dtype, device=device
+            ),
+        }
+    )
     return Qwen3Model(config, state_dict)
 
 

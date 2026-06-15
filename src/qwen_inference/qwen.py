@@ -59,23 +59,60 @@ class Qwen3MultiHeadAttention:
         is_causal: bool = True,
     ) -> torch.tensor:
         B, L, _ = x.shape
+        x_flat = x.reshape(B * L, self.hidden_size)
+
+        def project(weight: torch.Tensor, out_features: int) -> torch.Tensor:
+            bias = torch.zeros((B * L, out_features), dtype=x.dtype, device=x.device)
+            return run_kernel(
+                kernel=linear,
+                inputs=[x_flat, weight, bias],
+                tl_hyper_params={
+                    "M": B * L,
+                    "N": out_features,
+                    "K": self.hidden_size,
+                    "BLOCK_M": 16,
+                    "BLOCK_N": 64,
+                    "BLOCK_K": 64,
+                },
+            )
+
+        projection_q = project(self.wq, self.num_heads * self.head_dim).reshape(
+            B, L, self.num_heads, self.head_dim
+        )
+        projection_k = project(self.wk, self.num_kv_heads * self.head_dim).reshape(
+            B, L, self.num_kv_heads, self.head_dim
+        )
         projection_q = run_kernel(
-            kernel=linear, inputs=[x, self.wq, self.empty_bias]
+            kernel=rms_norm,
+            inputs=[
+                projection_q.reshape(B * L * self.num_heads, self.head_dim),
+                self.q_norm,
+            ],
+            tl_hyper_params={
+                "M": B * L * self.num_heads,
+                "N": self.head_dim,
+                "eps": self.rms_norm_eps,
+                "BLOCK_M": 16,
+                "BLOCK_N": self.head_dim,
+            },
         ).reshape(B, L, self.num_heads, self.head_dim)
         projection_k = run_kernel(
-            kernel=linear, inputs=[x, self.wk, self.empty_bias]
-        ).reshape(B, L, self.num_kv_heads, self.head_dim)
-        projection_q = run_kernel(
             kernel=rms_norm,
-            inputs=[projection_q, self.q_norm, self.rms_norm_eps],
-        )
-        projection_k = run_kernel(
-            kernel=rms_norm,
-            inputs=[projection_k, self.k_norm, self.rms_norm_eps],
-        )
-        projection_v = run_kernel(
-            kernel=linear, inputs=[x, self.wv, self.empty_bias]
+            inputs=[
+                projection_k.reshape(B * L * self.num_kv_heads, self.head_dim),
+                self.k_norm,
+            ],
+            tl_hyper_params={
+                "M": B * L * self.num_kv_heads,
+                "N": self.head_dim,
+                "eps": self.rms_norm_eps,
+                "BLOCK_M": 16,
+                "BLOCK_N": self.head_dim,
+            },
         ).reshape(B, L, self.num_kv_heads, self.head_dim)
+        projection_v = project(self.wv, self.num_kv_heads * self.head_dim).reshape(
+            B, L, self.num_kv_heads, self.head_dim
+        )
 
         projection_q = self.rope(projection_q)
         projection_k = self.rope(projection_k)
@@ -134,20 +171,64 @@ class Qwen3MLP:
 
     # TODO: fusion
     def __call__(self, x: torch.tensor) -> torch.tensor:
+        B, L, _ = x.shape
+        x_flat = x.reshape(B * L, self.dim)
 
-        # return linear(silu(linear(x, self.w_gate)) * linear(x, self.w_up), self.w_down)
-        project_gate = run_kernel(
-            kernel=linear, inputs=[x, self.w_gate, self.empty_bias]
+        def project(
+            input_tensor: torch.Tensor,
+            weight: torch.Tensor,
+            in_features: int,
+            out_features: int,
+        ) -> torch.Tensor:
+            bias = torch.zeros(
+                (input_tensor.shape[0], out_features),
+                dtype=input_tensor.dtype,
+                device=input_tensor.device,
+            )
+            return run_kernel(
+                kernel=linear,
+                inputs=[input_tensor, weight, bias],
+                tl_hyper_params={
+                    "M": input_tensor.shape[0],
+                    "N": out_features,
+                    "K": in_features,
+                    "BLOCK_M": 16,
+                    "BLOCK_N": 64,
+                    "BLOCK_K": 64,
+                },
+            )
+
+        project_gate = project(x_flat, self.w_gate, self.dim, self.hidden_dim)
+        project_gate_silu = run_kernel(
+            kernel=silu,
+            inputs=[project_gate],
+            tl_hyper_params={
+                "M": B * L,
+                "N": 64,
+                "BLOCK_M": 16,
+                "BLOCK_N": 64,
+            },
         )
-        project_gate_silu = run_kernel(kernel=silu, inputs=[project_gate])
         project_up = (
-            run_kernel(kernel=linear, inputs=[x, self.w_up, self.empty_bias])
-            * project_gate_silu
+            project(x_flat, self.w_up, self.dim, self.hidden_dim) * project_gate_silu
         )
         project_down = run_kernel(
-            kernel=linear, inputs=[project_up, self.w_down, self.empty_bias]
+            kernel=linear,
+            inputs=[
+                project_up,
+                self.w_down,
+                torch.zeros((B * L, self.dim), dtype=x.dtype, device=x.device),
+            ],
+            tl_hyper_params={
+                "M": B * L,
+                "N": self.dim,
+                "K": self.hidden_dim,
+                "BLOCK_M": 16,
+                "BLOCK_N": 64,
+                "BLOCK_K": 64,
+            },
         )
-        return project_down
+        return project_down.reshape(B, L, self.dim)
 
 
 class Qwen3TransformerBlock:
