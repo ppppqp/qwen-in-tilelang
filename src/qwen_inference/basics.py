@@ -100,10 +100,7 @@ def silu_kernel(X, BLOCK_M, BLOCK_N):
     X: T.Tensor((M, N), dtype)
     O = T.empty((M, N), dtype)
     log2_e = 1.44269504
-    with T.Kernel(
-        T.ceildiv(M, BLOCK_M),
-        threads=128,
-    ) as pid_n:
+    with T.Kernel(T.ceildiv(M, BLOCK_M)) as pid_n:
         X_local = T.alloc_fragment((BLOCK_M, BLOCK_N), dtype)
         O_local = T.alloc_fragment((BLOCK_M, BLOCK_N), dtype)
 

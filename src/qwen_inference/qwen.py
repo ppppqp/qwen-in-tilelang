@@ -63,12 +63,8 @@ class Qwen3MultiHeadAttention:
         def project(weight: torch.Tensor) -> torch.Tensor:
             return linear(x_flat, weight, BLOCK_M=16, BLOCK_N=64, BLOCK_K=64)
 
-        projection_q = project(self.wq).reshape(
-            B, L, self.num_heads, self.head_dim
-        )
-        projection_k = project(self.wk).reshape(
-            B, L, self.num_kv_heads, self.head_dim
-        )
+        projection_q = project(self.wq).reshape(B, L, self.num_heads, self.head_dim)
+        projection_k = project(self.wk).reshape(B, L, self.num_kv_heads, self.head_dim)
         projection_q = rms_norm(
             projection_q.reshape(B * L * self.num_heads, self.head_dim),
             self.q_norm,
@@ -83,9 +79,7 @@ class Qwen3MultiHeadAttention:
             BLOCK_M=16,
             BLOCK_N=self.head_dim,
         ).reshape(B, L, self.num_kv_heads, self.head_dim)
-        projection_v = project(self.wv).reshape(
-            B, L, self.num_kv_heads, self.head_dim
-        )
+        projection_v = project(self.wv).reshape(B, L, self.num_kv_heads, self.head_dim)
 
         projection_q = self.rope(projection_q)
         projection_k = self.rope(projection_k)
@@ -137,11 +131,12 @@ class Qwen3MLP:
             return linear(input_tensor, weight, BLOCK_M=16, BLOCK_N=64, BLOCK_K=64)
 
         project_gate = project(x_flat, self.w_gate)
+
         project_gate_silu = silu(project_gate, BLOCK_M=16, BLOCK_N=self.hidden_dim)
-        project_up = (
-            project(x_flat, self.w_up) * project_gate_silu
+        project_up = project(x_flat, self.w_up) * project_gate_silu
+        project_down = linear(
+            project_up, self.w_down, BLOCK_M=16, BLOCK_N=64, BLOCK_K=64
         )
-        project_down = linear(project_up, self.w_down, BLOCK_M=16, BLOCK_N=64, BLOCK_K=64)
         return project_down.reshape(B, L, self.dim)
 
 
