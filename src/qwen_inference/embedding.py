@@ -2,7 +2,6 @@ from qwen_inference.basics import linear
 
 # from qwen_inference.quantize import QuantizedWeights, quantized_linear
 import torch
-from qwen_inference.utils import run_kernel
 
 
 class Embedding:
@@ -22,15 +21,10 @@ class Embedding:
         return self.weight[x, :]
 
     def as_linear(self, x: torch.Tensor) -> torch.Tensor:
-        return run_kernel(
-            kernel=linear,
-            inputs=[
-                x,
-                self.weight,
-                torch.zeros(self.embedding_dim, dtype=torch.float16),
-            ],
-            tl_hyper_params={"BLOCK_M": 128, "BLOCK_N": 128},
-        )
+        orig_shape = x.shape
+        x_flat = x.reshape(-1, self.embedding_dim)
+        output = linear(x_flat, self.weight, BLOCK_M=128, BLOCK_N=128, BLOCK_K=64)
+        return output.reshape(*orig_shape[:-1], self.vocab_size)
 
 
 # class QuantizedEmbedding:

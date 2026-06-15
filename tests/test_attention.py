@@ -3,11 +3,13 @@ from __future__ import annotations
 from tests.common_test_utils import (
     kernel_tester,
 )
-from qwen_inference.attention import attention, grouped_attention
+from qwen_inference.attention import attention_kernel, grouped_attention_kernel
+import pytest
 import torch
 import torch.nn.functional as F
 
 
+@pytest.mark.skipif(torch.cuda.device_count() == 0, reason="TileLang CUDA test")
 def test_attention():
     def ref_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor):
         assert len(Q.shape) == 2
@@ -23,7 +25,7 @@ def test_attention():
     BLOCK_B = 16
     BLOCK_S = 128
     match = kernel_tester(
-        attention,
+        attention_kernel,
         ref_attention,
         {"B": B, "S": S, "BLOCK_B": BLOCK_B, "BLOCK_S": BLOCK_S},
     )
@@ -31,6 +33,7 @@ def test_attention():
     print("Attention test passed!")
 
 
+@pytest.mark.skipif(torch.cuda.device_count() == 0, reason="TileLang CUDA test")
 def test_grouped_attention():
     is_causal = True
 
@@ -66,7 +69,7 @@ def test_grouped_attention():
     K = torch.randn((N, S, H, D), dtype=torch.float16, device="cuda")
     V = torch.randn((N, S, H, D), dtype=torch.float16, device="cuda")
     match = kernel_tester(
-        grouped_attention,
+        grouped_attention_kernel,
         ref_grouped_attention,
         {
             "N": N,

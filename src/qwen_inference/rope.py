@@ -1,12 +1,11 @@
-from qwen_inference.utils import run_kernel
 import tilelang
 import tilelang.language as T
-from tilelang.jit import JITKernel, JITImpl
 import torch
+from qwen_inference.utils import run_kernel
 
 
 @tilelang.jit
-def rope(X, offset, base, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
+def rope_kernel(X, offset, base, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
     N, S, H, D = T.const("N, S, H, D")
     dtype = T.float32
     X: T.Tensor((N, S, H, D), dtype)
@@ -98,6 +97,39 @@ def rope(X, offset, base, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
     return O
 
 
+def rope(
+    x: torch.Tensor,
+    *,
+    offset: int = 0,
+    base: int = 10000,
+    BLOCK_N: int = 1,
+    BLOCK_S: int = 16,
+    BLOCK_H: int = 1,
+    BLOCK_D: int | None = None,
+) -> torch.Tensor:
+    assert x.ndim == 4
+    assert x.shape[3] % 2 == 0
+    x_dtype = x.dtype
+    BLOCK_D = min(16, x.shape[3] // 2) if BLOCK_D is None else BLOCK_D
+    out = run_kernel(
+        rope_kernel,
+        inputs=[x.to(torch.float32)],
+        tl_hyper_params={
+            "N": x.shape[0],
+            "S": x.shape[1],
+            "H": x.shape[2],
+            "D": x.shape[3],
+            "base": base,
+            "offset": offset,
+            "BLOCK_N": BLOCK_N,
+            "BLOCK_S": BLOCK_S,
+            "BLOCK_H": BLOCK_H,
+            "BLOCK_D": BLOCK_D,
+        },
+    )
+    return out.to(x_dtype)
+
+
 class RoPE:
     def __init__(
         self,
@@ -113,21 +145,12 @@ class RoPE:
         self.traditional = traditional
 
     def __call__(self, x: torch.Tensor, _offset: int = 0) -> torch.Tensor:
-        x_dtype = x.dtype
-        out = run_kernel(
-            kernel=rope,
-            inputs=[x.to(torch.float32)],
-            tl_hyper_params={
-                "N": x.shape[0],
-                "S": x.shape[1],
-                "H": x.shape[2],
-                "D": x.shape[3],
-                "base": self.base,
-                "offset": _offset,
-                "BLOCK_N": 1,
-                "BLOCK_S": 16,
-                "BLOCK_H": 1,
-                "BLOCK_D": min(16, self.dims // 2),
-            },
+        return rope(
+            x,
+            offset=_offset,
+            base=self.base,
+            BLOCK_N=1,
+            BLOCK_S=16,
+            BLOCK_H=1,
+            BLOCK_D=min(16, self.dims // 2),
         )
-        return out.to(x_dtype)

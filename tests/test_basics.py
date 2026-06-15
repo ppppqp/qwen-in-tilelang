@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import torch
 
-from qwen_inference.basics import linear, rms_norm, silu, softmax
+from qwen_inference.basics import (
+    linear_kernel,
+    rms_norm_kernel,
+    silu_kernel,
+    softmax_kernel,
+)
 from tests.common_test_utils import kernel_tester
 
 
@@ -17,7 +22,7 @@ def test_softmax():
     BLOCK_N = 16
     BLOCK_M = 128
     match = kernel_tester(
-        softmax,
+        softmax_kernel,
         ref_softmax,
         {"N": N, "M": M, "BLOCK_N": BLOCK_N, "BLOCK_M": BLOCK_M},
     )
@@ -42,7 +47,7 @@ def test_linear():
     BLOCK_N = 128
     BLOCK_K = 64
     match = kernel_tester(
-        linear,
+        linear_kernel,
         ref_linear,
         {
             "M": M,
@@ -70,7 +75,7 @@ def test_silu():
     BLOCK_M = 16
     BLOCK_N = 128
     match = kernel_tester(
-        silu,
+        silu_kernel,
         ref_silu,
         {"M": M, "N": N, "BLOCK_M": BLOCK_M, "BLOCK_N": BLOCK_N},
         atol=1e-2,
@@ -96,7 +101,7 @@ def test_rms_norm():
     BLOCK_N = 128
     eps = 1e-5
     match = kernel_tester(
-        rms_norm,
+        rms_norm_kernel,
         ref_rms_norm,
         {
             "M": M,

@@ -3,14 +3,12 @@ import torch
 from qwen_inference.utils import run_kernel
 import tilelang
 import tilelang.language as T
-from tilelang.jit import JITKernel, JITImpl
-from tilelang.engine.param import KernelParam
 
 # TODO: handle more than 2D tensors
 
 
 @tilelang.jit
-def softmax(A, BLOCK_N: int, BLOCK_M: int):
+def softmax_kernel(A, BLOCK_N: int, BLOCK_M: int):
     log2_e = 1.44269504
     N, M = T.const("N, M")
     dtype = T.float32
@@ -53,7 +51,7 @@ def softmax(A, BLOCK_N: int, BLOCK_M: int):
 
 
 @tilelang.jit
-def linear(X, W, b, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int):
+def linear_kernel(X, W, b, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int):
     M, N, K = T.const("M, N, K")
     dtype = T.float16
     accum_dtype = T.float32
@@ -83,7 +81,9 @@ def linear(X, W, b, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int):
 
 # TODO: implement this
 @tilelang.jit
-def quantized_linear(X, W, b, group_size, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int):
+def quantized_linear_kernel(
+    X, W, b, group_size, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int
+):
     M, N, K = T.const("M, N, K")
     dtype = T.float16
     accum_dtype = T.float32
@@ -93,7 +93,7 @@ def quantized_linear(X, W, b, group_size, BLOCK_M: int, BLOCK_N: int, BLOCK_K: i
 
 
 @tilelang.jit
-def silu(X, BLOCK_M, BLOCK_N):
+def silu_kernel(X, BLOCK_M, BLOCK_N):
     M, N = T.const("M, N")
     dtype = T.float16
     accum_dtype = T.float32
@@ -119,7 +119,7 @@ def silu(X, BLOCK_M, BLOCK_N):
 
 
 @tilelang.jit
-def rms_norm(X, weight, eps: float, BLOCK_M: int, BLOCK_N: int):
+def rms_norm_kernel(X, weight, eps: float, BLOCK_M: int, BLOCK_N: int):
     M, N = T.const("M, N")
 
     dtype = T.float16
@@ -161,6 +161,100 @@ def rms_norm(X, weight, eps: float, BLOCK_M: int, BLOCK_N: int):
     return O
 
 
+def softmax(
+    A: torch.Tensor,
+    *,
+    BLOCK_N: int = 16,
+    BLOCK_M: int | None = None,
+) -> torch.Tensor:
+    assert A.ndim == 2
+    BLOCK_M = A.shape[1] if BLOCK_M is None else BLOCK_M
+    return run_kernel(
+        softmax_kernel,
+        inputs=[A],
+        tl_hyper_params={
+            "N": A.shape[0],
+            "M": A.shape[1],
+            "BLOCK_N": BLOCK_N,
+            "BLOCK_M": BLOCK_M,
+        },
+    )
+
+
+def linear(
+    X: torch.Tensor,
+    W: torch.Tensor,
+    b: torch.Tensor | None = None,
+    *,
+    BLOCK_M: int = 16,
+    BLOCK_N: int = 64,
+    BLOCK_K: int = 64,
+) -> torch.Tensor:
+    assert X.ndim == 2
+    assert W.ndim == 2
+    assert X.shape[1] == W.shape[0]
+    if b is None:
+        b = torch.zeros((X.shape[0], W.shape[1]), dtype=X.dtype, device=X.device)
+    assert b.shape == (X.shape[0], W.shape[1])
+    return run_kernel(
+        linear_kernel,
+        inputs=[X, W, b],
+        tl_hyper_params={
+            "M": X.shape[0],
+            "N": W.shape[1],
+            "K": X.shape[1],
+            "BLOCK_M": BLOCK_M,
+            "BLOCK_N": BLOCK_N,
+            "BLOCK_K": BLOCK_K,
+        },
+    )
+
+
+def silu(
+    X: torch.Tensor,
+    *,
+    BLOCK_M: int = 16,
+    BLOCK_N: int | None = None,
+) -> torch.Tensor:
+    assert X.ndim == 2
+    BLOCK_N = X.shape[1] if BLOCK_N is None else BLOCK_N
+    return run_kernel(
+        silu_kernel,
+        inputs=[X],
+        tl_hyper_params={
+            "M": X.shape[0],
+            "N": X.shape[1],
+            "BLOCK_M": BLOCK_M,
+            "BLOCK_N": BLOCK_N,
+        },
+    )
+
+
+def rms_norm(
+    X: torch.Tensor,
+    weight: torch.Tensor,
+    eps: float,
+    *,
+    BLOCK_M: int = 16,
+    BLOCK_N: int | None = None,
+) -> torch.Tensor:
+    assert X.ndim == 2
+    assert weight.ndim == 1
+    assert X.shape[1] == weight.shape[0]
+    BLOCK_N = X.shape[1] if BLOCK_N is None else BLOCK_N
+    return run_kernel(
+        rms_norm_kernel,
+        inputs=[X, weight],
+        tl_hyper_params={
+            "M": X.shape[0],
+            "N": X.shape[1],
+            "eps": eps,
+            "BLOCK_M": BLOCK_M,
+            "BLOCK_N": BLOCK_N,
+        },
+    )
+
+
 class RMSNorm:
     def __init__(self, dim: int, weight: torch.Tensor, eps: float = 1e-5):
         self.dim = dim
@@ -170,15 +264,5 @@ class RMSNorm:
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         orig_shape = x.shape
         x_flat = x.reshape(-1, self.dim)
-        out = run_kernel(
-            kernel=rms_norm,
-            inputs=[x_flat, self.weight],
-            tl_hyper_params={
-                "M": x_flat.shape[0],
-                "N": self.dim,
-                "eps": self.eps,
-                "BLOCK_M": 16,
-                "BLOCK_N": self.dim,
-            },
-        )
+        out = rms_norm(x_flat, self.weight, self.eps, BLOCK_M=16, BLOCK_N=self.dim)
         return out.reshape(orig_shape)

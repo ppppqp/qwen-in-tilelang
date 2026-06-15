@@ -2,13 +2,14 @@ import torch
 
 import tilelang
 import tilelang.language as T
+from qwen_inference.utils import run_kernel
 
 
 # TODO: mask
 # TODO: multihead
 # TODO: group QA
 @tilelang.jit
-def attention(Q, K, V, BLOCK_B: int, BLOCK_S: int):
+def attention_kernel(Q, K, V, BLOCK_B: int, BLOCK_S: int):
     log2_e = 1.44269504
     B, S = T.const("B, S")
     dtype = T.float32
@@ -80,7 +81,7 @@ def attention(Q, K, V, BLOCK_B: int, BLOCK_S: int):
 # N is batch size, H is number of heads, S is sequence length, D is head dimension.
 # However, in this kernel we use B to represent H * D
 @tilelang.jit
-def grouped_attention(Q, K, V, is_causal: bool, BLOCK_L: int, BLOCK_S: int):
+def grouped_attention_kernel(Q, K, V, is_causal: bool, BLOCK_L: int, BLOCK_S: int):
     log2_e = 1.44269504
     N, QH, H, S, D = T.const("N, QH, H, S, D")
     dtype = T.float16
@@ -197,6 +198,59 @@ def grouped_attention(Q, K, V, is_causal: bool, BLOCK_L: int, BLOCK_S: int):
         T.copy(O_shared, O[pid_n, pid_l * BLOCK_L : (pid_l + 1) * BLOCK_L, pid_h, :])
 
     return O
+
+
+def attention(
+    Q: torch.Tensor,
+    K: torch.Tensor,
+    V: torch.Tensor,
+    *,
+    BLOCK_B: int = 16,
+    BLOCK_S: int = 128,
+) -> torch.Tensor:
+    assert Q.ndim == K.ndim == V.ndim == 2
+    assert Q.shape == K.shape == V.shape
+    return run_kernel(
+        attention_kernel,
+        inputs=[Q, K, V],
+        tl_hyper_params={
+            "B": Q.shape[0],
+            "S": Q.shape[1],
+            "BLOCK_B": BLOCK_B,
+            "BLOCK_S": BLOCK_S,
+        },
+    )
+
+
+def grouped_attention(
+    Q: torch.Tensor,
+    K: torch.Tensor,
+    V: torch.Tensor,
+    *,
+    is_causal: bool = True,
+    BLOCK_L: int = 16,
+    BLOCK_S: int = 16,
+) -> torch.Tensor:
+    assert Q.ndim == K.ndim == V.ndim == 4
+    assert K.shape == V.shape
+    N, L, QH, D = Q.shape
+    _, S, H, _ = K.shape
+    assert L == S
+    assert QH % H == 0
+    return run_kernel(
+        grouped_attention_kernel,
+        inputs=[Q, K, V],
+        tl_hyper_params={
+            "N": N,
+            "QH": QH,
+            "H": H,
+            "S": S,
+            "D": D,
+            "is_causal": is_causal,
+            "BLOCK_L": BLOCK_L,
+            "BLOCK_S": BLOCK_S,
+        },
+    )
 
 
 def paged_attention(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from qwen_inference.rope import rope
+from qwen_inference.rope import rope_kernel
 from tests.common_test_utils import kernel_tester
 
 
@@ -43,7 +43,7 @@ def test_rope_no_offset():
         return _ref_rope(X, offset=offset)
 
     match = kernel_tester(
-        rope,
+        rope_kernel,
         ref_rope,
         {
             "N": N,
@@ -77,7 +77,7 @@ def test_rope_with_offset():
         return _ref_rope(X, offset=offset)
 
     match = kernel_tester(
-        rope,
+        rope_kernel,
         ref_rope,
         {
             "N": N,
