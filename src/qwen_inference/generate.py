@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import sys
 
 from .qwen import Qwen3Model
 from typing import Any, Callable
@@ -20,6 +21,18 @@ def _pad_tokens_to_multiple(tokens: torch.Tensor, multiple: int) -> torch.Tensor
     return torch.nn.functional.pad(tokens, (0, padding))
 
 
+def _print_generation_progress(step: int, total: int) -> None:
+    width = 30
+    filled = width * step // total if total else width
+    bar = "#" * filled + "-" * (width - filled)
+    print(
+        f"\rGenerating [{bar}] {step}/{total}\033[K",
+        end="",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def simple_generate(
     model: Qwen3Model,
     tokenizer: Any,
@@ -27,6 +40,7 @@ def simple_generate(
     sampler: Callable[[torch.Tensor], torch.Tensor] | None,
     device: str | torch.device = "cuda",
     max_new_tokens: int = 128,
+    show_progress: bool = False,
 ) -> str:
     def _step(model, y):
         padded_y = _pad_tokens_to_multiple(y, multiple=16)
@@ -48,18 +62,25 @@ def simple_generate(
 
     # print("tokens shape:", tokens.shape)
     generated: list[int] = []
+    text = ""
     # generate/decode
     for i in range(max_new_tokens):
-        logging.info(f"Step {i}, current tokens: {len(generated)}")
+        logging.debug(f"Step {i}, current tokens: {len(generated)}")
         token = _step(model, tokens)
         token_id = int(token.item())
         tokens = torch.cat([tokens, token])
+        if show_progress:
+            _print_generation_progress(i + 1, max_new_tokens)
         if token_id == tokenizer.eos_token_id:
             break
         generated.append(token_id)
-        print(
-            tokenizer.decode(generated, skip_special_tokens=True), end="\r", flush=True
-        )
-    text = tokenizer.decode(generated, skip_special_tokens=True)
-    print(text, flush=True)
+        next_text = tokenizer.decode(generated, skip_special_tokens=True)
+        if next_text.startswith(text):
+            print(next_text[len(text) :], end="", flush=True)
+        else:
+            print(next_text, end="", flush=True)
+        text = next_text
+    if show_progress:
+        print(file=sys.stderr, flush=True)
+    print(flush=True)
     return text

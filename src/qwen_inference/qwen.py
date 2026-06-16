@@ -310,8 +310,6 @@ class Qwen3Model:
 
         # FIXME: remove
         # h = torch.randn((1, 32, 128), dtype=torch.float16, device="cuda")
-        print("Input after embedding shape:", h.shape)
-
         for layer in range(self.num_hidden_layers):
             h = self.layers_inner[layer](h, is_causal=True)
         if self.num_hidden_layers > 0:

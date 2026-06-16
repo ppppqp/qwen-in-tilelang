@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 import torch
 
-from qwen_inference.generate import _pad_tokens_to_multiple, simple_generate
+from qwen_inference.generate import (
+    _pad_tokens_to_multiple,
+    _print_generation_progress,
+    simple_generate,
+)
 from qwen_inference.qwen import Qwen3Model, Qwen3ModelConfig
 
 
@@ -36,6 +40,16 @@ def test_pad_tokens_to_multiple_returns_original_when_already_aligned():
     padded = _pad_tokens_to_multiple(tokens, multiple=16)
 
     assert padded is tokens
+
+
+def test_print_generation_progress_writes_to_stderr(capsys):
+    _print_generation_progress(step=2, total=4)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Generating" in captured.err
+    assert "2/4" in captured.err
+    assert "\033[K" in captured.err
 
 
 def _tiny_qwen3_model(device: str) -> Qwen3Model:

@@ -10,8 +10,9 @@ from qwen_inference.tokenizer import QwenTokenizer
 """
 Example usage:
 python main.py \
-    --prompt "Give me a short introduction to large language model." \
-    --max-new-tokens 32
+    --prompt "Give me a short introduction to large language model in 10 words." \
+    --max-new-tokens 32 \
+    --show-progress
 """
 
 
@@ -34,6 +35,11 @@ parser.add_argument("--enable-thinking", action="store_true")
 parser.add_argument("--enable-flash-attn", action="store_true")
 parser.add_argument("--device", type=str, default="cuda")
 parser.add_argument("--max-new-tokens", type=int, default=128)
+parser.add_argument(
+    "--show-progress",
+    action="store_true",
+    help="Show a progress bar for generated tokens on stderr.",
+)
 parser.add_argument(
     "--dtype",
     type=str,
@@ -80,11 +86,13 @@ prompt = tokenizer.apply_chat_template(
 sampler = make_sampler(
     args.sampler_temp, top_p=args.sampler_top_p, top_k=args.sampler_top_k
 )
-simple_generate(
+response = simple_generate(
     model,
     tokenizer,
     prompt,
     sampler=sampler,
     device=args.device,
     max_new_tokens=args.max_new_tokens,
+    show_progress=args.show_progress,
 )
+print(f"\nGenerated response: {response}")
