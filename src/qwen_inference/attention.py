@@ -18,7 +18,7 @@ def attention_kernel(Q, K, V, BLOCK_B: int, BLOCK_S: int):
     V: T.Tensor((B, S), dtype)
     O = T.empty((B, S), dtype)
 
-    with T.Kernel(B // BLOCK_B, threads=256) as pid_b:
+    with T.Kernel(T.ceildiv(B, BLOCK_B), threads=256) as pid_b:
         Q_shared = T.alloc_fragment((BLOCK_B, BLOCK_S), dtype)
         K_shared = T.alloc_fragment((BLOCK_B, BLOCK_S), dtype)
         V_local = T.alloc_fragment((BLOCK_B, BLOCK_S), dtype)
@@ -34,7 +34,7 @@ def attention_kernel(Q, K, V, BLOCK_B: int, BLOCK_S: int):
         T.fill(lse, -T.infinity(dtype))
 
         # The first loop use an online algorithm to compute LSE.
-        for s_blk_id in T.Serial(S // BLOCK_S):
+        for s_blk_id in T.Serial(T.ceildiv(S, BLOCK_S)):
             T.copy(Q[pid_b * BLOCK_B, s_blk_id * BLOCK_S], Q_shared)
             T.copy(K[pid_b * BLOCK_B, s_blk_id * BLOCK_S], K_shared)
 
@@ -57,7 +57,7 @@ def attention_kernel(Q, K, V, BLOCK_B: int, BLOCK_S: int):
 
         # The second loop use LSE to get the final output.
         # TODO: improve the efficiency here. Maybe pipeline it?
-        for s_blk_id in T.Serial(S // BLOCK_S):
+        for s_blk_id in T.Serial(T.ceildiv(S, BLOCK_S)):
             T.copy(Q[pid_b * BLOCK_B, s_blk_id * BLOCK_S], Q_shared)
             T.copy(K[pid_b * BLOCK_B, s_blk_id * BLOCK_S], K_shared)
             T.copy(V[pid_b * BLOCK_B, s_blk_id * BLOCK_S], V_local)

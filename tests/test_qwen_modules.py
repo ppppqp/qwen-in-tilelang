@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from qwen_inference.basics import linear, silu
 from qwen_inference.qwen import (
     Qwen3MLP,
     Qwen3MultiHeadAttention,
@@ -32,7 +33,50 @@ def _ones(shape: tuple[int, ...], device: str) -> torch.Tensor:
     return torch.ones(shape, dtype=torch.float16, device=device)
 
 
-def test_qwen3_mlp_zero_weights_outputs_zero():
+# 33 does not compile
+@pytest.mark.parametrize("seq_len", [32, 64])
+def test_qwen3_mlp_gate_projection_zero_weights_outputs_zero(seq_len: int):
+    device = "cuda"
+    hidden_size, _, _, _, intermediate_size = _module_dims()
+    x = torch.randn((seq_len, hidden_size), dtype=torch.float16, device=device)
+    w_gate = _zeros((hidden_size, intermediate_size), device)
+
+    output = linear(x, w_gate, BLOCK_M=16, BLOCK_N=64, BLOCK_K=64)
+
+    assert output.shape == (seq_len, intermediate_size)
+    assert torch.allclose(output, torch.zeros_like(output))
+    assert not torch.isnan(output).any()
+
+
+@pytest.mark.parametrize("seq_len", [32, 64])
+def test_qwen3_mlp_silu_zero_input_outputs_zero(seq_len: int):
+    device = "cuda"
+    _, _, _, _, intermediate_size = _module_dims()
+    x = _zeros((seq_len, intermediate_size), device)
+
+    output = silu(x, BLOCK_M=16, BLOCK_N=intermediate_size)
+
+    assert output.shape == x.shape
+    assert torch.allclose(output, torch.zeros_like(output))
+    assert not torch.isnan(output).any()
+
+
+@pytest.mark.parametrize("seq_len", [32, 64])
+def test_qwen3_mlp_down_projection_zero_input_outputs_zero(seq_len: int):
+    device = "cuda"
+    hidden_size, _, _, _, intermediate_size = _module_dims()
+    x = _zeros((seq_len, intermediate_size), device)
+    w_down = _zeros((intermediate_size, hidden_size), device)
+
+    output = linear(x, w_down, BLOCK_M=16, BLOCK_N=64, BLOCK_K=64)
+
+    assert output.shape == (seq_len, hidden_size)
+    assert torch.allclose(output, torch.zeros_like(output))
+    assert not torch.isnan(output).any()
+
+
+@pytest.mark.parametrize("seq_len", [32, 64])
+def test_qwen3_mlp_zero_weights_outputs_zero(seq_len: int):
     device = "cuda"
     hidden_size, _, _, _, intermediate_size = _module_dims()
     mlp = Qwen3MLP(
@@ -42,7 +86,7 @@ def test_qwen3_mlp_zero_weights_outputs_zero():
         w_up=_zeros((hidden_size, intermediate_size), device),
         w_down=_zeros((intermediate_size, hidden_size), device),
     )
-    x = torch.randn((16, 16, hidden_size), dtype=torch.float16, device=device)
+    x = torch.randn((1, seq_len, hidden_size), dtype=torch.float16, device=device)
 
     output = mlp(x)
 
@@ -51,7 +95,8 @@ def test_qwen3_mlp_zero_weights_outputs_zero():
     assert not torch.isnan(output).any()
 
 
-def test_qwen3_multi_head_attention_zero_weights_outputs_zero():
+@pytest.mark.parametrize("seq_len", [32, 33])
+def test_qwen3_multi_head_attention_zero_weights_outputs_zero(seq_len: int):
     device = "cuda"
     hidden_size, num_attention_heads, num_kv_heads, head_dim, _ = _module_dims()
     kv_hidden_size = num_kv_heads * head_dim
@@ -67,7 +112,7 @@ def test_qwen3_multi_head_attention_zero_weights_outputs_zero():
         q_norm=_ones((head_dim,), device),
         k_norm=_ones((head_dim,), device),
     )
-    x = torch.randn((16, 16, hidden_size), dtype=torch.float16, device=device)
+    x = torch.randn((1, seq_len, hidden_size), dtype=torch.float16, device=device)
 
     output = attention(x, is_causal=True)
 
@@ -76,7 +121,8 @@ def test_qwen3_multi_head_attention_zero_weights_outputs_zero():
     assert not torch.isnan(output).any()
 
 
-def test_qwen3_transformer_block_zero_weights_preserves_residual():
+@pytest.mark.parametrize("seq_len", [32, 64])
+def test_qwen3_transformer_block_zero_weights_preserves_residual(seq_len: int):
     device = "cuda"
     hidden_size, num_attention_heads, num_kv_heads, head_dim, intermediate_size = (
         _module_dims()
@@ -101,7 +147,7 @@ def test_qwen3_transformer_block_zero_weights_preserves_residual():
         w_input_layernorm=_ones((hidden_size,), device),
         w_post_attention_layernorm=_ones((hidden_size,), device),
     )
-    x = torch.randn((16, 16, hidden_size), dtype=torch.float16, device=device)
+    x = torch.randn((1, seq_len, hidden_size), dtype=torch.float16, device=device)
 
     output = block(x, is_causal=True)
 

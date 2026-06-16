@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from qwen_inference.generate import simple_generate
+from qwen_inference.generate import _pad_tokens_to_multiple, simple_generate
 from qwen_inference.qwen import Qwen3Model, Qwen3ModelConfig
 
 
@@ -13,12 +13,29 @@ class FakeTokenizer:
     def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
         assert text == "hello"
         assert not add_special_tokens
-        return [1, 2]
+        return [1, 2] * 16
 
     def decode(self, token_ids: list[int], skip_special_tokens: bool = True) -> str:
         assert skip_special_tokens
         pieces = {3: "A", 4: "B", self.eos_token_id: ""}
         return "".join(pieces[token_id] for token_id in token_ids)
+
+
+def test_pad_tokens_to_multiple_right_pads_with_token_zero():
+    tokens = torch.tensor([1, 2, 3], dtype=torch.long)
+
+    padded = _pad_tokens_to_multiple(tokens, multiple=16)
+
+    assert padded.tolist() == [1, 2, 3] + [0] * 13
+    assert padded.dtype == tokens.dtype
+
+
+def test_pad_tokens_to_multiple_returns_original_when_already_aligned():
+    tokens = torch.arange(16, dtype=torch.long)
+
+    padded = _pad_tokens_to_multiple(tokens, multiple=16)
+
+    assert padded is tokens
 
 
 def _tiny_qwen3_model(device: str) -> Qwen3Model:

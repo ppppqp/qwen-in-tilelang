@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import tilelang.language as T
 import torch
 
@@ -163,6 +164,24 @@ class Qwen3TransformerBlock:
         max_seq_len: int = 32768,
         theta: int = 1000000,
     ):
+
+        print("Initializing Qwen3TransformerBlock with")
+        print(f"num_attention_heads: {num_attention_heads}")
+        print(f"num_kv_heads: {num_kv_heads}")
+        print(f"hidden_size: {hidden_size}")
+        print(f"head_dim: {head_dim}")
+        print(f"intermediate_size: {intermediate_size}")
+        print(f"wq shape: {wq.shape}")
+        print(f"wk shape: {wk.shape}")
+        print(f"wv shape: {wv.shape}")
+        print(f"wo shape: {wo.shape}")
+        print(f"q_norm shape: {q_norm.shape}")
+        print(f"k_norm shape: {k_norm.shape}")
+        print(f"w_gate shape: {w_gate.shape}")
+        print(f"w_up shape: {w_up.shape}")
+        print(f"w_down shape: {w_down.shape}")
+        print(f"w_input_layernorm shape: {w_input_layernorm.shape}")
+        print(f"w_post_attention_layernorm shape: {w_post_attention_layernorm.shape}")
         self.num_attention_heads = num_attention_heads
         self.hidden_size = hidden_size
         self.mlp = Qwen3MLP(hidden_size, intermediate_size, w_gate, w_up, w_down)
@@ -286,6 +305,11 @@ class Qwen3Model:
     ) -> torch.tensor:
 
         h = self.embedding(inputs)
+
+        # FIXME: remove
+        # h = torch.randn((1, 32, 128), dtype=torch.float16, device="cuda")
+        print("Input after embedding shape:", h.shape)
+
         for layer in range(self.num_hidden_layers):
             h = self.layers_inner[layer](h, is_causal=True)
         if self.num_hidden_layers > 0:
