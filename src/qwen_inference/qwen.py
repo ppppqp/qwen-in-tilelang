@@ -165,23 +165,25 @@ class Qwen3TransformerBlock:
         theta: int = 1000000,
     ):
 
-        print("Initializing Qwen3TransformerBlock with")
-        print(f"num_attention_heads: {num_attention_heads}")
-        print(f"num_kv_heads: {num_kv_heads}")
-        print(f"hidden_size: {hidden_size}")
-        print(f"head_dim: {head_dim}")
-        print(f"intermediate_size: {intermediate_size}")
-        print(f"wq shape: {wq.shape}")
-        print(f"wk shape: {wk.shape}")
-        print(f"wv shape: {wv.shape}")
-        print(f"wo shape: {wo.shape}")
-        print(f"q_norm shape: {q_norm.shape}")
-        print(f"k_norm shape: {k_norm.shape}")
-        print(f"w_gate shape: {w_gate.shape}")
-        print(f"w_up shape: {w_up.shape}")
-        print(f"w_down shape: {w_down.shape}")
-        print(f"w_input_layernorm shape: {w_input_layernorm.shape}")
-        print(f"w_post_attention_layernorm shape: {w_post_attention_layernorm.shape}")
+        logging.debug("Initializing Qwen3TransformerBlock with")
+        logging.debug(f"num_attention_heads: {num_attention_heads}")
+        logging.debug(f"num_kv_heads: {num_kv_heads}")
+        logging.debug(f"hidden_size: {hidden_size}")
+        logging.debug(f"head_dim: {head_dim}")
+        logging.debug(f"intermediate_size: {intermediate_size}")
+        logging.debug(f"wq shape: {wq.shape}")
+        logging.debug(f"wk shape: {wk.shape}")
+        logging.debug(f"wv shape: {wv.shape}")
+        logging.debug(f"wo shape: {wo.shape}")
+        logging.debug(f"q_norm shape: {q_norm.shape}")
+        logging.debug(f"k_norm shape: {k_norm.shape}")
+        logging.debug(f"w_gate shape: {w_gate.shape}")
+        logging.debug(f"w_up shape: {w_up.shape}")
+        logging.debug(f"w_down shape: {w_down.shape}")
+        logging.debug(f"w_input_layernorm shape: {w_input_layernorm.shape}")
+        logging.debug(
+            f"w_post_attention_layernorm shape: {w_post_attention_layernorm.shape}"
+        )
         self.num_attention_heads = num_attention_heads
         self.hidden_size = hidden_size
         self.mlp = Qwen3MLP(hidden_size, intermediate_size, w_gate, w_up, w_down)

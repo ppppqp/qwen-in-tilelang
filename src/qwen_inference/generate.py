@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 
 from .qwen import Qwen3Model
 from typing import Any, Callable
@@ -45,10 +46,11 @@ def simple_generate(
         dtype=torch.long,
     )
 
-    print("tokens shape:", tokens.shape)
+    # print("tokens shape:", tokens.shape)
     generated: list[int] = []
     # generate/decode
-    for _ in range(max_new_tokens):
+    for i in range(max_new_tokens):
+        logging.info(f"Step {i}, current tokens: {len(generated)}")
         token = _step(model, tokens)
         token_id = int(token.item())
         tokens = torch.cat([tokens, token])

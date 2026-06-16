@@ -26,17 +26,14 @@ class QwenTokenizer:
         return self.tokenizer.encode(text, add_special_tokens=add_special_tokens).ids
 
     def decode(self, token_ids: list[int], skip_special_tokens: bool = True) -> str:
-        return self.tokenizer.decode(
-            token_ids, skip_special_tokens=skip_special_tokens
-        )
+        return self.tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens)
 
     def apply_chat_template(
         self,
         messages: list[dict[str, Any]],
-        tokenize: bool = False,
         add_generation_prompt: bool = True,
         enable_thinking: bool = False,
-    ) -> str | list[int]:
+    ) -> str:
         prompt_parts: list[str] = []
         for message in messages:
             role = message["role"]
@@ -47,8 +44,6 @@ class QwenTokenizer:
             if not enable_thinking:
                 prompt_parts.append("<think>\n\n</think>\n\n")
         prompt = "".join(prompt_parts)
-        if tokenize:
-            return self.encode(prompt, add_special_tokens=False)
         return prompt
 
 

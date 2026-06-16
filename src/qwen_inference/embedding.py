@@ -23,7 +23,8 @@ class Embedding:
     def as_linear(self, x: torch.Tensor) -> torch.Tensor:
         orig_shape = x.shape
         x_flat = x.reshape(-1, self.embedding_dim)
-        output = linear(x_flat, self.weight, BLOCK_M=128, BLOCK_N=128, BLOCK_K=64)
+        weight = self.weight.T.contiguous()
+        output = linear(x_flat, weight, BLOCK_M=128, BLOCK_N=128, BLOCK_K=64)
         return output.reshape(*orig_shape[:-1], self.vocab_size)
 
 
