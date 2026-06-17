@@ -5,6 +5,7 @@ import tilelang
 from qwen_inference.model import load_qwen3_model_from_files
 from qwen_inference.sampler import make_sampler
 from qwen_inference.generate import simple_generate
+from qwen_inference.profiler import InferenceProfiler
 from qwen_inference.tokenizer import QwenTokenizer
 
 """
@@ -39,6 +40,11 @@ parser.add_argument(
     "--show-progress",
     action="store_true",
     help="Show a progress bar for generated tokens on stderr.",
+)
+parser.add_argument(
+    "--profile",
+    action="store_true",
+    help="Print inference throughput, latency, and memory metrics after generation.",
 )
 parser.add_argument(
     "--dtype",
@@ -86,6 +92,7 @@ prompt = tokenizer.apply_chat_template(
 sampler = make_sampler(
     args.sampler_temp, top_p=args.sampler_top_p, top_k=args.sampler_top_k
 )
+profiler = InferenceProfiler(device=args.device) if args.profile else None
 response = simple_generate(
     model,
     tokenizer,
@@ -94,5 +101,8 @@ response = simple_generate(
     device=args.device,
     max_new_tokens=args.max_new_tokens,
     show_progress=args.show_progress,
+    profiler=profiler,
 )
 print(f"\nGenerated response: {response}")
+if profiler is not None:
+    print(profiler.format_summary())
