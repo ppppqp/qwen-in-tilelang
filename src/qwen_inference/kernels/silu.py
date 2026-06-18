@@ -6,14 +6,14 @@ from qwen_inference.utils import run_kernel
 
 
 @tilelang.jit
-def silu_kernel(X, BLOCK_M, BLOCK_N):
+def silu_kernel(X, BLOCK_M, BLOCK_N, THREADS: int):
     M, N = T.const("M, N")
     dtype = T.float16
     accum_dtype = T.float32
     X: T.Tensor((M, N), dtype)
     O = T.empty((M, N), dtype)
     log2_e = 1.44269504
-    with T.Kernel(T.ceildiv(M, BLOCK_M), threads=128) as pid_n:
+    with T.Kernel(T.ceildiv(M, BLOCK_M), threads=THREADS) as pid_n:
         X_local = T.alloc_fragment((BLOCK_M, BLOCK_N), dtype)
         O_local = T.alloc_fragment((BLOCK_M, BLOCK_N), dtype)
 
@@ -33,6 +33,7 @@ def silu(
     *,
     BLOCK_M: int = 16,
     BLOCK_N: int | None = None,
+    THREADS: int = 128,
 ) -> torch.Tensor:
     assert X.ndim == 2
     BLOCK_N = X.shape[1] if BLOCK_N is None else BLOCK_N
@@ -44,6 +45,6 @@ def silu(
             "N": X.shape[1],
             "BLOCK_M": BLOCK_M,
             "BLOCK_N": BLOCK_N,
+            "THREADS": THREADS,
         },
     )
-

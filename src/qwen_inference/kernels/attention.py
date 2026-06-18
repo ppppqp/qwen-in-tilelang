@@ -6,7 +6,7 @@ from qwen_inference.utils import run_kernel
 
 
 @tilelang.jit
-def attention_kernel(Q, K, V, BLOCK_B: int, BLOCK_S: int):
+def attention_kernel(Q, K, V, BLOCK_B: int, BLOCK_S: int, THREADS: int):
     log2_e = 1.44269504
     B, S = T.const("B, S")
     dtype = T.float32
@@ -15,7 +15,7 @@ def attention_kernel(Q, K, V, BLOCK_B: int, BLOCK_S: int):
     V: T.Tensor((B, S), dtype)
     O = T.empty((B, S), dtype)
 
-    with T.Kernel(T.ceildiv(B, BLOCK_B), threads=256) as pid_b:
+    with T.Kernel(T.ceildiv(B, BLOCK_B), threads=THREADS) as pid_b:
         Q_shared = T.alloc_fragment((BLOCK_B, BLOCK_S), dtype)
         K_shared = T.alloc_fragment((BLOCK_B, BLOCK_S), dtype)
         V_local = T.alloc_fragment((BLOCK_B, BLOCK_S), dtype)
@@ -74,6 +74,7 @@ def attention(
     *,
     BLOCK_B: int = 16,
     BLOCK_S: int = 128,
+    THREADS: int = 256,
 ) -> torch.Tensor:
     assert Q.ndim == K.ndim == V.ndim == 2
     assert Q.shape == K.shape == V.shape
@@ -85,6 +86,7 @@ def attention(
             "S": Q.shape[1],
             "BLOCK_B": BLOCK_B,
             "BLOCK_S": BLOCK_S,
+            "THREADS": THREADS,
         },
     )
 
@@ -126,4 +128,3 @@ def flash_attention(
     mask: torch.Tensor | str | None = None,
 ) -> torch.Tensor:
     raise NotImplementedError("Torch paged_attention needs a Torch/TileLang kernel.")
-

@@ -6,7 +6,9 @@ from qwen_inference.utils import run_kernel
 
 
 @tilelang.jit
-def grouped_attention_kernel(Q, K, V, is_causal: bool, BLOCK_L: int, BLOCK_S: int):
+def grouped_attention_kernel(
+    Q, K, V, is_causal: bool, BLOCK_L: int, BLOCK_S: int, THREADS: int
+):
     N, QH, H, S, D = T.const("N, QH, H, S, D")
     dtype = T.float16
     accum_dtype = T.float32
@@ -19,7 +21,7 @@ def grouped_attention_kernel(Q, K, V, is_causal: bool, BLOCK_L: int, BLOCK_S: in
     log2_e = 1.44269504
 
     group_size = QH // H
-    with T.Kernel(N, T.ceildiv(L, BLOCK_L), QH, threads=32) as (
+    with T.Kernel(N, T.ceildiv(L, BLOCK_L), QH, threads=THREADS) as (
         pid_n,
         pid_l,
         pid_h,
@@ -123,8 +125,9 @@ def grouped_attention(
     V: torch.Tensor,
     *,
     is_causal: bool = True,
-    BLOCK_L: int = 16,
-    BLOCK_S: int = 16,
+    BLOCK_L: int = 32,
+    BLOCK_S: int = 32,
+    THREADS: int = 32,
 ) -> torch.Tensor:
     assert Q.ndim == K.ndim == V.ndim == 4
     assert K.shape == V.shape
@@ -144,6 +147,6 @@ def grouped_attention(
             "is_causal": is_causal,
             "BLOCK_L": BLOCK_L,
             "BLOCK_S": BLOCK_S,
+            "THREADS": THREADS,
         },
     )
-

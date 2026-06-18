@@ -25,10 +25,17 @@ def test_attention():
     S = 16384
     BLOCK_B = 16
     BLOCK_S = 128
+    THREADS = 256
     match = kernel_tester(
         attention_kernel,
         ref_attention,
-        {"B": B, "S": S, "BLOCK_B": BLOCK_B, "BLOCK_S": BLOCK_S},
+        {
+            "B": B,
+            "S": S,
+            "BLOCK_B": BLOCK_B,
+            "BLOCK_S": BLOCK_S,
+            "THREADS": THREADS,
+        },
     )
     assert match, "Attention test failed!"
     print("Attention test passed!")
@@ -66,6 +73,7 @@ def test_grouped_attention():
     D = 128
     BLOCK_L = 16
     BLOCK_S = 16
+    THREADS = 32
     Q = torch.randn((N, L, QH, D), dtype=torch.float16, device="cuda")
     K = torch.randn((N, S, H, D), dtype=torch.float16, device="cuda")
     V = torch.randn((N, S, H, D), dtype=torch.float16, device="cuda")
@@ -81,6 +89,7 @@ def test_grouped_attention():
             "is_causal": is_causal,
             "BLOCK_L": BLOCK_L,
             "BLOCK_S": BLOCK_S,
+            "THREADS": THREADS,
         },
         inputs_in_torch_tensors=[Q, K, V],
         atol=1e-2,

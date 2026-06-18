@@ -37,6 +37,7 @@ def test_rope_no_offset():
     BLOCK_S = 16
     BLOCK_H = 1
     BLOCK_D = 4
+    THREADS = 256
     offset = 0
 
     def ref_rope(X: torch.Tensor):
@@ -56,6 +57,7 @@ def test_rope_no_offset():
             "BLOCK_S": BLOCK_S,
             "BLOCK_H": BLOCK_H,
             "BLOCK_D": BLOCK_D,
+            "THREADS": THREADS,
         },
     )
     assert match, "RoPE no-offset test failed!"
@@ -71,6 +73,7 @@ def test_rope_with_offset():
     BLOCK_S = 16
     BLOCK_H = 1
     BLOCK_D = 4
+    THREADS = 256
     offset = 32
 
     def ref_rope(X: torch.Tensor):
@@ -90,6 +93,7 @@ def test_rope_with_offset():
             "BLOCK_S": BLOCK_S,
             "BLOCK_H": BLOCK_H,
             "BLOCK_D": BLOCK_D,
+            "THREADS": THREADS,
         },
     )
     assert match, "RoPE offset test failed!"

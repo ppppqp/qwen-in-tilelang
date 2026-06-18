@@ -19,10 +19,17 @@ def test_softmax():
     M = 1024
     BLOCK_N = 16
     BLOCK_M = 128
+    THREADS = 256
     match = kernel_tester(
         softmax_kernel,
         ref_softmax,
-        {"N": N, "M": M, "BLOCK_N": BLOCK_N, "BLOCK_M": BLOCK_M},
+        {
+            "N": N,
+            "M": M,
+            "BLOCK_N": BLOCK_N,
+            "BLOCK_M": BLOCK_M,
+            "THREADS": THREADS,
+        },
     )
     assert match, "Softmax test failed!"
     print("Softmax test passed!")
@@ -44,6 +51,7 @@ def test_linear():
     BLOCK_M = 128
     BLOCK_N = 128
     BLOCK_K = 64
+    THREADS = 128
     match = kernel_tester(
         linear_kernel,
         ref_linear,
@@ -54,6 +62,7 @@ def test_linear():
             "BLOCK_M": BLOCK_M,
             "BLOCK_N": BLOCK_N,
             "BLOCK_K": BLOCK_K,
+            "THREADS": THREADS,
         },
         atol=1e-1,
         rtol=1e-1,
@@ -72,10 +81,17 @@ def test_silu():
     N = 128
     BLOCK_M = 16
     BLOCK_N = 128
+    THREADS = 128
     match = kernel_tester(
         silu_kernel,
         ref_silu,
-        {"M": M, "N": N, "BLOCK_M": BLOCK_M, "BLOCK_N": BLOCK_N},
+        {
+            "M": M,
+            "N": N,
+            "BLOCK_M": BLOCK_M,
+            "BLOCK_N": BLOCK_N,
+            "THREADS": THREADS,
+        },
         atol=1e-2,
         rtol=1e-2,
     )
@@ -97,6 +113,7 @@ def test_rms_norm():
     N = 128
     BLOCK_M = 16
     BLOCK_N = 128
+    THREADS = 128
     eps = 1e-5
     match = kernel_tester(
         rms_norm_kernel,
@@ -107,6 +124,7 @@ def test_rms_norm():
             "eps": eps,
             "BLOCK_M": BLOCK_M,
             "BLOCK_N": BLOCK_N,
+            "THREADS": THREADS,
         },
         atol=1e-2,
         rtol=1e-2,

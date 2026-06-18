@@ -6,7 +6,7 @@ from qwen_inference.utils import run_kernel
 
 
 @tilelang.jit
-def rope_kernel(X, offset, base, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
+def rope_kernel(X, offset, base, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D, THREADS: int):
     N, S, H, D = T.const("N, S, H, D")
     dtype = T.float32
     X: T.Tensor((N, S, H, D), dtype)
@@ -19,7 +19,7 @@ def rope_kernel(X, offset, base, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
         T.ceildiv(N, BLOCK_N),
         T.ceildiv(S, BLOCK_S),
         num_h_blocks * num_d_blocks,
-        threads=256,
+        threads=THREADS,
     ) as (
         pid_n,
         pid_s,
@@ -103,6 +103,7 @@ def rope(
     BLOCK_S: int = 16,
     BLOCK_H: int = 1,
     BLOCK_D: int | None = None,
+    THREADS: int = 256,
 ) -> torch.Tensor:
     assert x.ndim == 4
     assert x.shape[3] % 2 == 0
@@ -122,6 +123,7 @@ def rope(
             "BLOCK_S": BLOCK_S,
             "BLOCK_H": BLOCK_H,
             "BLOCK_D": BLOCK_D,
+            "THREADS": THREADS,
         },
     )
     return out.to(x_dtype)
@@ -150,5 +152,5 @@ class RoPE:
             BLOCK_S=16,
             BLOCK_H=1,
             BLOCK_D=min(16, self.dims // 2),
+            THREADS=256,
         )
-

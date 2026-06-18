@@ -28,6 +28,7 @@ def qwen3_06b_grouped_attention_configs() -> list[dict[str, int]]:
     return config_grid(
         BLOCK_L=[16, 32],
         BLOCK_S=[16, 32, 64],
+        THREADS=[32, 64, 128],
     )
 
 

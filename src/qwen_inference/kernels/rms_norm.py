@@ -6,7 +6,9 @@ from qwen_inference.utils import run_kernel
 
 
 @tilelang.jit
-def rms_norm_kernel(X, weight, eps: float, BLOCK_M: int, BLOCK_N: int):
+def rms_norm_kernel(
+    X, weight, eps: float, BLOCK_M: int, BLOCK_N: int, THREADS: int
+):
     M, N = T.const("M, N")
 
     dtype = T.float16
@@ -16,7 +18,7 @@ def rms_norm_kernel(X, weight, eps: float, BLOCK_M: int, BLOCK_N: int):
     weight: T.Tensor((N,), dtype)
     O = T.empty((M, N), dtype)
 
-    with T.Kernel(T.ceildiv(M, BLOCK_M), threads=128) as pid_m:
+    with T.Kernel(T.ceildiv(M, BLOCK_M), threads=THREADS) as pid_m:
         X_local = T.alloc_fragment((BLOCK_M, BLOCK_N), dtype)
         W_local = T.alloc_fragment((BLOCK_N,), dtype)
         X_square = T.alloc_fragment((BLOCK_M, BLOCK_N), accum_dtype)
@@ -55,6 +57,7 @@ def rms_norm(
     *,
     BLOCK_M: int = 16,
     BLOCK_N: int | None = None,
+    THREADS: int = 128,
 ) -> torch.Tensor:
     assert X.ndim == 2
     assert weight.ndim == 1
@@ -69,6 +72,7 @@ def rms_norm(
             "eps": eps,
             "BLOCK_M": BLOCK_M,
             "BLOCK_N": BLOCK_N,
+            "THREADS": THREADS,
         },
     )
 
@@ -84,4 +88,3 @@ class RMSNorm:
         x_flat = x.reshape(-1, self.dim)
         out = rms_norm(x_flat, self.weight, self.eps, BLOCK_M=16, BLOCK_N=self.dim)
         return out.reshape(orig_shape)
-

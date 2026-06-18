@@ -6,7 +6,9 @@ from qwen_inference.utils import run_kernel
 
 
 @tilelang.jit
-def linear_kernel(X, W, b, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int):
+def linear_kernel(
+    X, W, b, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int, THREADS: int
+):
     M, N, K = T.const("M, N, K")
     dtype = T.float16
     accum_dtype = T.float32
@@ -14,7 +16,7 @@ def linear_kernel(X, W, b, BLOCK_M: int, BLOCK_N: int, BLOCK_K: int):
     W: T.Tensor((K, N), dtype)
     b: T.Tensor((M, N), dtype)
     O = T.empty((M, N), dtype)
-    with T.Kernel(T.ceildiv(N, BLOCK_N), T.ceildiv(M, BLOCK_M), threads=128) as (
+    with T.Kernel(T.ceildiv(N, BLOCK_N), T.ceildiv(M, BLOCK_M), threads=THREADS) as (
         pid_n,
         pid_m,
     ):
@@ -54,6 +56,7 @@ def linear(
     BLOCK_M: int = 16,
     BLOCK_N: int = 64,
     BLOCK_K: int = 64,
+    THREADS: int = 128,
 ) -> torch.Tensor:
     assert X.ndim == 2
     assert W.ndim == 2
@@ -71,6 +74,6 @@ def linear(
             "BLOCK_M": BLOCK_M,
             "BLOCK_N": BLOCK_N,
             "BLOCK_K": BLOCK_K,
+            "THREADS": THREADS,
         },
     )
-

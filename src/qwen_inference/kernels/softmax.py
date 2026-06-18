@@ -6,14 +6,14 @@ from qwen_inference.utils import run_kernel
 
 
 @tilelang.jit
-def softmax_kernel(A, BLOCK_N: int, BLOCK_M: int):
+def softmax_kernel(A, BLOCK_N: int, BLOCK_M: int, THREADS: int):
     log2_e = 1.44269504
     N, M = T.const("N, M")
     dtype = T.float32
     A: T.Tensor((N, M), dtype)
     B = T.empty((N, M), dtype)
 
-    with T.Kernel(T.ceildiv(N, BLOCK_N), threads=256) as bx:
+    with T.Kernel(T.ceildiv(N, BLOCK_N), threads=THREADS) as bx:
         A_local = T.alloc_fragment((BLOCK_N, BLOCK_M), dtype)
         B_local = T.alloc_fragment((BLOCK_N, BLOCK_M), dtype)
         cur_max = T.alloc_fragment((BLOCK_N,), dtype)
@@ -51,6 +51,7 @@ def softmax(
     *,
     BLOCK_N: int = 16,
     BLOCK_M: int | None = None,
+    THREADS: int = 256,
 ) -> torch.Tensor:
     assert A.ndim == 2
     BLOCK_M = A.shape[1] if BLOCK_M is None else BLOCK_M
@@ -62,6 +63,6 @@ def softmax(
             "M": A.shape[1],
             "BLOCK_N": BLOCK_N,
             "BLOCK_M": BLOCK_M,
+            "THREADS": THREADS,
         },
     )
-

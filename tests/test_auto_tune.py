@@ -100,5 +100,4 @@ def test_qwen3_06b_grouped_attention_spec_uses_model_shape():
     assert q.shape == (2, 32, 16, 128)
     assert k.shape == (2, 32, 8, 128)
     assert v.shape == (2, 32, 8, 128)
-    assert {"BLOCK_L": 16, "BLOCK_S": 16} in spec.configs
-
+    assert {"BLOCK_L": 16, "BLOCK_S": 16, "THREADS": 32} in spec.configs
