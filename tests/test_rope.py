@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from qwen_inference.rope import rope_kernel
+from qwen_inference.kernels.rope import rope_kernel
 from tests.common_test_utils import kernel_tester
 
 

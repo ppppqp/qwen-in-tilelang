@@ -3,7 +3,8 @@ from __future__ import annotations
 from tests.common_test_utils import (
     kernel_tester,
 )
-from qwen_inference.attention import attention_kernel, grouped_attention_kernel
+from qwen_inference.kernels.attention import attention_kernel
+from qwen_inference.kernels.grouped_attention import grouped_attention_kernel
 import pytest
 import torch
 import torch.nn.functional as F

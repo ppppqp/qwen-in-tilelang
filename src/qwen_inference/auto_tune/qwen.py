@@ -6,7 +6,6 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 
-from qwen_inference.attention import grouped_attention_kernel
 from qwen_inference.auto_tune.tuner import (
     BenchmarkOptions,
     TuneReport,
@@ -15,6 +14,7 @@ from qwen_inference.auto_tune.tuner import (
     config_grid,
     tilelang_candidate_factory,
 )
+from qwen_inference.kernels.grouped_attention import grouped_attention_kernel
 
 
 QWEN3_06B_ATTENTION_SHAPE = {
@@ -103,4 +103,3 @@ def tune_qwen3_06b_grouped_attention(
         configs=configs,
     )
     return autotune(spec, options)
-

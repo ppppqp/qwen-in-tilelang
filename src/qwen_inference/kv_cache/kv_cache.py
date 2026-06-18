@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 
 import torch
 
-from qwen_inference.attention import causal_mask
+from qwen_inference.kernels.attention import causal_mask
 
 
 class TinyKvCache(ABC):

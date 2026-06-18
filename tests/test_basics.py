@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import torch
 
-from qwen_inference.basics import (
-    linear_kernel,
-    rms_norm_kernel,
-    silu_kernel,
-    softmax_kernel,
-)
+from qwen_inference.kernels.linear import linear_kernel
+from qwen_inference.kernels.rms_norm import rms_norm_kernel
+from qwen_inference.kernels.silu import silu_kernel
+from qwen_inference.kernels.softmax import softmax_kernel
 from tests.common_test_utils import kernel_tester
 
 

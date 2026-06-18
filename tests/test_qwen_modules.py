@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from qwen_inference.basics import linear, silu
+from qwen_inference.kernels import linear, silu
 from qwen_inference.qwen import (
     Qwen3MLP,
     Qwen3MultiHeadAttention,

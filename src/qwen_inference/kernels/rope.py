@@ -1,6 +1,7 @@
+import torch
 import tilelang
 import tilelang.language as T
-import torch
+
 from qwen_inference.utils import run_kernel
 
 
@@ -10,7 +11,6 @@ def rope_kernel(X, offset, base, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
     dtype = T.float32
     X: T.Tensor((N, S, H, D), dtype)
     O = T.empty((N, S, H, D), dtype)
-    # can I compute constants here?
     half_D = D // 2
 
     num_h_blocks = T.ceildiv(H, BLOCK_H)
@@ -19,7 +19,6 @@ def rope_kernel(X, offset, base, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
         T.ceildiv(N, BLOCK_N),
         T.ceildiv(S, BLOCK_S),
         num_h_blocks * num_d_blocks,
-        # tilelang support 3 dimension at most, since hardware usually have at most 3 level of parallelism. So we need to combine H and D dimensions together.
         threads=256,
     ) as (
         pid_n,
@@ -40,9 +39,7 @@ def rope_kernel(X, offset, base, BLOCK_N, BLOCK_S, BLOCK_H, BLOCK_D):
             freq = T.pow(base, -dim_idx.astype("float32") / half_D)
             cos_basis[s, d] = T.cos(seq_idx * freq)
             sin_basis[s, d] = T.sin(seq_idx * freq)
-        # for each block, we process
-        # x[..., BLOCK_D * pid_d : BLOCK_D * (pid_d + 1)]
-        # and x[..., BLOCK_D * pid_d + half_D : BLOCK_D * (pid_d + 1) + half_D]
+
         n_blk_id = pid_n
         s_blk_id = pid_s
         T.copy(
@@ -154,3 +151,4 @@ class RoPE:
             BLOCK_H=1,
             BLOCK_D=min(16, self.dims // 2),
         )
+

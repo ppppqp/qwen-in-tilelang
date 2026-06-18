@@ -1,4 +1,4 @@
-from qwen_inference.basics import linear
+from qwen_inference.kernels.linear import linear
 
 # from qwen_inference.quantize import QuantizedWeights, quantized_linear
 import torch
@@ -16,7 +16,6 @@ class Embedding:
         self.weight = weight
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
-        # TODO: what is this?
         # array index lookup
         return self.weight[x, :]
 
