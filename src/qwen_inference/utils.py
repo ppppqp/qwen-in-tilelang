@@ -31,7 +31,7 @@ def run_kernel(
     kernel: JITImpl,
     inputs: list,
     tl_hyper_params: dict = {},
-    profile: bool = True,
+    profile: bool = False,
 ) -> torch.tensor:
     cached_kernel = kernel_cache.get(kernel, **tl_hyper_params)
     if cached_kernel is not None:
@@ -52,11 +52,12 @@ def run_kernel(
     if profile:
         torch.cuda.synchronize()
         t1 = time.perf_counter()
+
     output = tl_kernel(*inputs)
 
     if profile:
         torch.cuda.synchronize()
         t2 = time.perf_counter()
-        logging.debug("Kernel compilation time: %.3f ms", (t1 - t0) * 1000)
-        logging.debug("Kernel execution time: %.3f ms", (t2 - t1) * 1000)
+        logging.debug("Kernel compilation time: %.3f ms", (t1 - t0) * 1000)  # pyright: ignore[reportOperatorIssue]
+        logging.debug("Kernel execution time: %.3f ms", (t2 - t1) * 1000)  # pyright: ignore[reportOperatorIssue]
     return output
