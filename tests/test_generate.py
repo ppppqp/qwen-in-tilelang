@@ -128,6 +128,7 @@ def _tiny_qwen3_model(device: str) -> Qwen3Model:
     return Qwen3Model(config, state_dict)
 
 
+@pytest.mark.skipif(torch.cuda.device_count() == 0, reason="TileLang CUDA test")
 def test_simple_generate_with_real_qwen3_model_and_mock_weights(capsys):
     device = "cuda"
     model = _tiny_qwen3_model(device)

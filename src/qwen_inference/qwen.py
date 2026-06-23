@@ -5,7 +5,7 @@ import logging
 import tilelang.language as T
 import torch
 
-from .kernels import RMSNorm, RoPE, grouped_attention, linear, rms_norm, silu
+from .kernel_backend import RMSNorm, RoPE, grouped_attention, linear, rms_norm, silu
 from .embedding import Embedding
 
 

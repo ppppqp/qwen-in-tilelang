@@ -1,6 +1,7 @@
 import argparse
 import logging
 import torch
+from qwen_inference.kernel_backend import KernelBackend, set_kernel_backend
 from qwen_inference.model import load_qwen3_model_from_files
 from qwen_inference.generate import simple_generate
 from qwen_inference.profiler import InferenceProfiler
@@ -30,6 +31,12 @@ parser.add_argument("--enable-thinking", action="store_true")
 parser.add_argument("--device", type=str, default="cuda")
 parser.add_argument("--max-new-tokens", type=int, default=128)
 parser.add_argument(
+    "--kernel-backend",
+    default=KernelBackend.DEFAULT.value,
+    choices=[backend.value for backend in KernelBackend],
+    help="Kernel backend to use: production kernels, learner kernels, or references.",
+)
+parser.add_argument(
     "--dtype",
     type=str,
     default="float16",
@@ -50,6 +57,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logging.getLogger("tilelang.cache.kernel_cache").setLevel(logging.ERROR)
+set_kernel_backend(args.kernel_backend)
 dtype_by_name = {
     "float16": torch.float16,
     "bfloat16": torch.bfloat16,

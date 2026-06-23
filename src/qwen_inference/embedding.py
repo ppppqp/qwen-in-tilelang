@@ -1,4 +1,4 @@
-from qwen_inference.kernels.linear import linear
+from qwen_inference.kernel_backend import linear
 import torch
 
 
