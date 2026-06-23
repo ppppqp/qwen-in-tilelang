@@ -137,7 +137,6 @@ def test_simple_generate_with_real_qwen3_model_and_mock_weights(capsys):
         model,
         tokenizer,
         "hello",
-        sampler=None,
         device=device,
         max_new_tokens=8,
     )

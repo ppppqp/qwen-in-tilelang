@@ -4,7 +4,7 @@ import sys
 
 from .qwen import Qwen3Model
 from .profiler import InferenceProfiler
-from typing import Any, Callable
+from typing import Any
 import torch
 
 
@@ -38,7 +38,6 @@ def simple_generate(
     model: Qwen3Model,
     tokenizer: Any,
     prompt: str,
-    sampler: Callable[[torch.Tensor], torch.Tensor] | None,
     device: str | torch.device = "cuda",
     max_new_tokens: int = 128,
     profiler: InferenceProfiler | None = None,
@@ -49,12 +48,7 @@ def simple_generate(
         padded_y = _pad_tokens_to_multiple(y, multiple=16)
         logits = model(padded_y[None])
         logits = logits[:, y.shape[0] - 1, :]
-        logprobs = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
-        if sampler is None:
-            y = torch.argmax(logprobs, dim=-1)
-        else:
-            y = sampler(logprobs)
-        return y
+        return torch.argmax(logits, dim=-1)
 
     # prefill with the prompt
     tokens = torch.tensor(
