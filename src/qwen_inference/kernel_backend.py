@@ -6,11 +6,30 @@ from typing import Any, NoReturn
 
 import torch
 
+from kernels.grouped_attention import grouped_attention as learner_grouped_attention
+from kernels.linear import linear as learner_linear
+from kernels.rms_norm import rms_norm as learner_rms_norm
+from kernels.rope import rope as learner_rope
+from kernels.silu import silu as learner_silu
+from qwen_inference.kernels.grouped_attention import (
+    grouped_attention as default_grouped_attention,
+)
+from qwen_inference.kernels.linear import linear as default_linear
+from qwen_inference.kernels.rms_norm import rms_norm as default_rms_norm
+from qwen_inference.kernels.rope import rope as default_rope
+from qwen_inference.kernels.silu import silu as default_silu
+from ref_kernels.grouped_attention import grouped_attention as ref_grouped_attention
+from ref_kernels.linear import linear as ref_linear
+from ref_kernels.rms_norm import rms_norm as ref_rms_norm
+from ref_kernels.rope import rope as ref_rope
+from ref_kernels.silu import silu as ref_silu
+
 
 class KernelBackend(StrEnum):
     DEFAULT = "default"
     KERNELS = "kernels"
     REF_KERNELS = "ref_kernels"
+
 
 _KERNEL_BACKEND: ContextVar[KernelBackend] = ContextVar(
     "qwen_inference_kernel_backend", default=KernelBackend.DEFAULT
@@ -40,71 +59,84 @@ def _unknown_backend() -> NoReturn:
     raise RuntimeError(f"Unknown kernel backend {get_kernel_backend()!r}")
 
 
-def linear(*args: Any, **kwargs: Any) -> torch.Tensor:
+def _resolve_linear() -> Any:
     match get_kernel_backend():
         case KernelBackend.DEFAULT:
-            from qwen_inference.kernels.linear import linear as kernel
+            return default_linear
         case KernelBackend.KERNELS:
-            from kernels.linear import linear as kernel
+            return learner_linear
         case KernelBackend.REF_KERNELS:
-            from ref_kernels.linear import linear as kernel
+            return ref_linear
         case _:
             _unknown_backend()
-    return kernel(*args, **kwargs)
+
+
+def linear(*args: Any, **kwargs: Any) -> torch.Tensor:
+    return _resolve_linear()(*args, **kwargs)
+
+
+def _resolve_rms_norm() -> Any:
+    match get_kernel_backend():
+        case KernelBackend.DEFAULT:
+            return default_rms_norm
+        case KernelBackend.KERNELS:
+            return learner_rms_norm
+        case KernelBackend.REF_KERNELS:
+            return ref_rms_norm
+        case _:
+            _unknown_backend()
 
 
 def rms_norm(*args: Any, **kwargs: Any) -> torch.Tensor:
+    return _resolve_rms_norm()(*args, **kwargs)
+
+
+def _resolve_silu() -> Any:
     match get_kernel_backend():
         case KernelBackend.DEFAULT:
-            from qwen_inference.kernels.rms_norm import rms_norm as kernel
+            return default_silu
         case KernelBackend.KERNELS:
-            from kernels.rms_norm import rms_norm as kernel
+            return learner_silu
         case KernelBackend.REF_KERNELS:
-            from ref_kernels.rms_norm import rms_norm as kernel
+            return ref_silu
         case _:
             _unknown_backend()
-    return kernel(*args, **kwargs)
 
 
 def silu(*args: Any, **kwargs: Any) -> torch.Tensor:
+    return _resolve_silu()(*args, **kwargs)
+
+
+def _resolve_rope() -> Any:
     match get_kernel_backend():
         case KernelBackend.DEFAULT:
-            from qwen_inference.kernels.silu import silu as kernel
+            return default_rope
         case KernelBackend.KERNELS:
-            from kernels.silu import silu as kernel
+            return learner_rope
         case KernelBackend.REF_KERNELS:
-            from ref_kernels.silu import silu as kernel
+            return ref_rope
         case _:
             _unknown_backend()
-    return kernel(*args, **kwargs)
 
 
 def rope(*args: Any, **kwargs: Any) -> torch.Tensor:
+    return _resolve_rope()(*args, **kwargs)
+
+
+def _resolve_grouped_attention() -> Any:
     match get_kernel_backend():
         case KernelBackend.DEFAULT:
-            from qwen_inference.kernels.rope import rope as kernel
+            return default_grouped_attention
         case KernelBackend.KERNELS:
-            from kernels.rope import rope as kernel
+            return learner_grouped_attention
         case KernelBackend.REF_KERNELS:
-            from ref_kernels.rope import rope as kernel
+            return ref_grouped_attention
         case _:
             _unknown_backend()
-    return kernel(*args, **kwargs)
 
 
 def grouped_attention(*args: Any, **kwargs: Any) -> torch.Tensor:
-    match get_kernel_backend():
-        case KernelBackend.DEFAULT:
-            from qwen_inference.kernels.grouped_attention import (
-                grouped_attention as kernel,
-            )
-        case KernelBackend.KERNELS:
-            from kernels.grouped_attention import grouped_attention as kernel
-        case KernelBackend.REF_KERNELS:
-            from ref_kernels.grouped_attention import grouped_attention as kernel
-        case _:
-            _unknown_backend()
-    return kernel(*args, **kwargs)
+    return _resolve_grouped_attention()(*args, **kwargs)
 
 
 class RMSNorm:
