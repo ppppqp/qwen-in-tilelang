@@ -11,9 +11,10 @@ from qwen_inference.tokenizer import QwenTokenizer
 """
 Example usage:
 python main.py \
-    --prompt "Give me a short introduction to large language model in 10 words." \
-    --max-new-tokens 32 \
-    --show-progress
+    --prompt "Give me a short introduction to large language model." \
+    --max-new-tokens 128 \
+    --show-progress \
+    --profile
 """
 
 
