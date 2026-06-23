@@ -12,9 +12,7 @@ from qwen_inference.tokenizer import QwenTokenizer
 Example usage:
 python main.py \
     --prompt "Give me a short introduction to large language model." \
-    --max-new-tokens 128 \
-    --show-progress \
-    --profile
+    --max-new-tokens 128
 """
 
 
@@ -37,16 +35,6 @@ parser.add_argument("--enable-thinking", action="store_true")
 parser.add_argument("--enable-flash-attn", action="store_true")
 parser.add_argument("--device", type=str, default="cuda")
 parser.add_argument("--max-new-tokens", type=int, default=128)
-parser.add_argument(
-    "--show-progress",
-    action="store_true",
-    help="Show a progress bar for generated tokens on stderr.",
-)
-parser.add_argument(
-    "--profile",
-    action="store_true",
-    help="Print inference throughput, latency, and memory metrics after generation.",
-)
 parser.add_argument(
     "--dtype",
     type=str,
@@ -93,7 +81,7 @@ prompt = tokenizer.apply_chat_template(
 sampler = make_sampler(
     args.sampler_temp, top_p=args.sampler_top_p, top_k=args.sampler_top_k
 )
-profiler = InferenceProfiler(device=args.device) if args.profile else None
+profiler = InferenceProfiler(device=args.device)
 response = simple_generate(
     model,
     tokenizer,
@@ -101,9 +89,7 @@ response = simple_generate(
     sampler=sampler,
     device=args.device,
     max_new_tokens=args.max_new_tokens,
-    show_progress=args.show_progress,
     profiler=profiler,
 )
 print(f"\nGenerated response: {response}")
-if profiler is not None:
-    print(profiler.format_summary())
+print(profiler.format_summary())

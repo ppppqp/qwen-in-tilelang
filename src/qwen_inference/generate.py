@@ -3,6 +3,7 @@ import logging
 import sys
 
 from .qwen import Qwen3Model
+from .profiler import InferenceProfiler
 from typing import Any, Callable
 import torch
 
@@ -40,9 +41,10 @@ def simple_generate(
     sampler: Callable[[torch.Tensor], torch.Tensor] | None,
     device: str | torch.device = "cuda",
     max_new_tokens: int = 128,
-    show_progress: bool = False,
-    profiler: Any | None = None,
+    profiler: InferenceProfiler | None = None,
 ) -> str:
+    profiler = profiler or InferenceProfiler(device=device)
+
     def _step(model, y):
         padded_y = _pad_tokens_to_multiple(y, multiple=16)
         logits = model(padded_y[None])
@@ -63,20 +65,16 @@ def simple_generate(
 
     generated: list[int] = []
     text = ""
-    if profiler is not None:
-        profiler.start(prompt_tokens=tokens.shape[0])
+    profiler.start(prompt_tokens=tokens.shape[0])
     # generate/decode
     for i in range(max_new_tokens):
         logging.debug(f"Step {i}, current tokens: {len(generated)}")
-        if profiler is not None:
-            profiler.step_begin()
+        profiler.step_begin()
         token = _step(model, tokens)
         token_id = int(token.item())
-        if profiler is not None:
-            profiler.step_end(output_token=token_id != tokenizer.eos_token_id)
+        profiler.step_end(output_token=token_id != tokenizer.eos_token_id)
         tokens = torch.cat([tokens, token])
-        if show_progress:
-            _print_generation_progress(i + 1, max_new_tokens)
+        _print_generation_progress(i + 1, max_new_tokens)
         if token_id == tokenizer.eos_token_id:
             break
         generated.append(token_id)
@@ -86,9 +84,7 @@ def simple_generate(
         else:
             print(next_text, end="", flush=True)
         text = next_text
-    if show_progress:
-        print(file=sys.stderr, flush=True)
+    print(file=sys.stderr, flush=True)
     print(flush=True)
-    if profiler is not None:
-        profiler.finish()
+    profiler.finish()
     return text
